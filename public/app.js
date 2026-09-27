@@ -124,7 +124,7 @@ form.addEventListener('submit', async (event) => {
       body: JSON.stringify({ url: urlInput.value, maxPages: Number(maxPagesInput.value) }),
     });
     const payload = await response.json();
-    if (!response.ok) throw new Error(payload.error || 'Audit failed.');
+    if (!response.ok) throw new Error(payload.error || payload.message || 'Audit failed.');
     setStatus(`Done. Audited ${payload.summary.pages} pages.`);
     render(payload);
   } catch (error) {
