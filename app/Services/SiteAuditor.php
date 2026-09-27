@@ -958,23 +958,31 @@ class SiteAuditor
         string $crawlOrigin,
         array $redirectMap,
         array $sitemapUrls,
+        array $linkTargetChecks = [],
     ): array {
         $byUrl = [];
         $titles = [];
         $descriptions = [];
         $contentHashes = [];
         $incoming = [];
+        $contextualIncoming = [];
+        $adjacency = [];
         $siteIssues = [];
         $internalLinksToRedirects = 0;
         $mixedSchemeLinks = 0;
         $duplicateContentGroups = 0;
         $orphanCandidates = 0;
+        $contextualLinks = 0;
+        $maxCrawlDepth = 0;
 
         foreach ($pages as $index => &$page) {
             $page['internalLinks'] = [
                 'incoming' => 0,
                 'outgoing' => 0,
+                'contextualIncoming' => 0,
+                'contextualOutgoing' => 0,
                 'redirecting' => 0,
+                'crawlDepth' => null,
             ];
             $page['inSitemap'] = false;
 
@@ -982,6 +990,8 @@ class SiteAuditor
                 $key = $this->urlKey($page['url']);
                 $byUrl[$key] = $index;
                 $incoming[$key] = 0;
+                $contextualIncoming[$key] = 0;
+                $adjacency[$key] = [];
             } catch (Throwable) {
                 continue;
             }
@@ -1064,9 +1074,29 @@ class SiteAuditor
 
         foreach ($pages as $index => &$page) {
             $seenOutgoing = [];
+            $seenContextualOutgoing = [];
             $redirectLinks = [];
             $mixedScheme = [];
             $broken = [];
+            $contextualTargets = [];
+
+            foreach ($page['linkDetails'] ?? [] as $detail) {
+                if (($detail['location'] ?? '') !== 'contextual') {
+                    continue;
+                }
+
+                try {
+                    $contextualTargets[$this->urlKey($detail['href'])] = true;
+                } catch (Throwable) {
+                    // Ignore malformed link detail.
+                }
+            }
+
+            try {
+                $sourceKey = $this->urlKey($page['url']);
+            } catch (Throwable) {
+                $sourceKey = null;
+            }
 
             foreach ($page['links'] as $link) {
                 if ($this->urls->sameHost($crawlOrigin, $link) && ! $this->urls->sameOrigin($crawlOrigin, $link)) {
@@ -1099,13 +1129,30 @@ class SiteAuditor
                     $seenOutgoing[$effectiveKey] = true;
                     $page['internalLinks']['outgoing']++;
 
+                    if ($sourceKey !== null && isset($byUrl[$effectiveKey])) {
+                        $adjacency[$sourceKey][$effectiveKey] = true;
+                    }
+
                     if (isset($byUrl[$effectiveKey])) {
                         $incoming[$effectiveKey] = ($incoming[$effectiveKey] ?? 0) + 1;
                     }
                 }
 
+                $isContextual = isset($contextualTargets[$targetKey]) || isset($contextualTargets[$effectiveKey]);
+                if ($isContextual && ! isset($seenContextualOutgoing[$effectiveKey])) {
+                    $seenContextualOutgoing[$effectiveKey] = true;
+                    $page['internalLinks']['contextualOutgoing']++;
+                    $contextualLinks++;
+
+                    if (isset($byUrl[$effectiveKey])) {
+                        $contextualIncoming[$effectiveKey] = ($contextualIncoming[$effectiveKey] ?? 0) + 1;
+                    }
+                }
+
                 if (isset($byUrl[$effectiveKey]) && $pages[$byUrl[$effectiveKey]]['status'] >= 400) {
                     $broken[$pages[$byUrl[$effectiveKey]]['url']] = true;
+                } elseif (isset($linkTargetChecks[$targetKey]) && ($linkTargetChecks[$targetKey]['status'] ?? 0) >= 400) {
+                    $broken[$link] = true;
                 }
             }
 
@@ -1155,7 +1202,7 @@ class SiteAuditor
                     $page,
                     'broken_internal_link',
                     'error',
-                    count($broken).' crawled internal link(s) point to HTTP errors; first: '.$first.'.',
+                    count($broken).' checked internal link(s) point to HTTP errors; first: '.$first.'.',
                 );
             }
         }
@@ -1163,6 +1210,38 @@ class SiteAuditor
 
         foreach ($byUrl as $key => $index) {
             $pages[$index]['internalLinks']['incoming'] = $incoming[$key] ?? 0;
+            $pages[$index]['internalLinks']['contextualIncoming'] = $contextualIncoming[$key] ?? 0;
+        }
+
+        if ($pages !== []) {
+            try {
+                $startKey = $this->urlKey($pages[0]['url']);
+                $depths = [$startKey => 0];
+                $queue = [$startKey];
+
+                while ($queue !== []) {
+                    $current = array_shift($queue);
+                    $depth = $depths[$current];
+
+                    foreach (array_keys($adjacency[$current] ?? []) as $target) {
+                        if (isset($depths[$target])) {
+                            continue;
+                        }
+
+                        $depths[$target] = $depth + 1;
+                        $maxCrawlDepth = max($maxCrawlDepth, $depth + 1);
+                        $queue[] = $target;
+                    }
+                }
+
+                foreach ($depths as $key => $depth) {
+                    if (isset($byUrl[$key])) {
+                        $pages[$byUrl[$key]]['internalLinks']['crawlDepth'] = $depth;
+                    }
+                }
+            } catch (Throwable) {
+                // Crawl depth is diagnostic only; leave null if the start URL cannot be normalized.
+            }
         }
 
         foreach ($pages as $index => $page) {
@@ -1426,6 +1505,8 @@ class SiteAuditor
             'duplicateContentGroups' => $duplicateContentGroups,
             'internalLinksToRedirects' => $internalLinksToRedirects,
             'mixedSchemeLinks' => $mixedSchemeLinks,
+            'maxCrawlDepth' => $maxCrawlDepth,
+            'contextualLinks' => $contextualLinks,
         ];
     }
 
