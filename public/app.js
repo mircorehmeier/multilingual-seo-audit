@@ -7,6 +7,9 @@ const results = document.querySelector('#results');
 const resultDomain = document.querySelector('#result-domain');
 const resultMeta = document.querySelector('#result-meta');
 const summary = document.querySelector('#summary');
+const siteDiagnostics = document.querySelector('#site-diagnostics');
+const siteDiagnosticsMeta = document.querySelector('#site-diagnostics-meta');
+const siteIssuesList = document.querySelector('#site-issues-list');
 const resultsBody = document.querySelector('#results-body');
 const severityFilter = document.querySelector('#severity-filter');
 const tableSearch = document.querySelector('#table-search');
@@ -77,18 +80,32 @@ function renderRows() {
   }
 }
 
+function renderSiteDiagnostics(result) {
+  const site = result.site || {};
+  const issues = result.siteIssues || [];
+  const robots = site.robotsTxt || {};
+  const sitemapCount = (site.sitemaps || []).length;
+  const sitemapUrls = site.sitemapUrlsDiscovered || 0;
+  siteDiagnosticsMeta.textContent = 'robots.txt: ' + (robots.status || 'not checked') + ' · ' + sitemapCount + ' sitemap' + (sitemapCount === 1 ? '' : 's') + ' parsed · ' + sitemapUrls + ' URL' + (sitemapUrls === 1 ? '' : 's') + ' discovered';
+  siteIssuesList.innerHTML = issues.length ? issues.map(issueHtml).join('') : '<span class="no-issues">No site-level issues found</span>';
+  siteDiagnostics.hidden = false;
+}
+
 function render(result) {
   latestResult = result;
   const parsed = new URL(result.startUrl);
   resultDomain.textContent = parsed.hostname;
-  resultMeta.textContent = `${result.summary.pages} page${result.summary.pages === 1 ? '' : 's'} audited · ${new Date(result.auditedAt).toLocaleString()}`;
+  resultMeta.textContent = result.summary.pages + ' page' + (result.summary.pages === 1 ? '' : 's') + ' audited · ' + new Date(result.auditedAt).toLocaleString();
   summary.innerHTML = [
     summaryCard('Pages', result.summary.pages),
     summaryCard('Errors', result.summary.errors, 'error'),
     summaryCard('Warnings', result.summary.warnings, 'warning'),
     summaryCard('Info', result.summary.info, 'info'),
     summaryCard('Languages', result.summary.languages.length || '—'),
+    summaryCard('Sitemap URLs', result.summary.sitemapUrls ?? '—'),
+    summaryCard('Noindex pages', result.summary.noindexPages ?? 0),
   ].join('');
+  renderSiteDiagnostics(result);
   renderRows();
   results.hidden = false;
   results.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -115,6 +132,7 @@ form.addEventListener('submit', async (event) => {
   event.preventDefault();
   runButton.disabled = true;
   results.hidden = true;
+  siteDiagnostics.hidden = true;
   setStatus(`Auditing up to ${maxPagesInput.value} pages…`);
 
   try {
@@ -144,21 +162,26 @@ downloadJson.addEventListener('click', () => {
 
 downloadCsv.addEventListener('click', () => {
   if (!latestResult) return;
-  const rows = [['URL', 'Status', 'Lang', 'Title', 'Meta description', 'Canonical', 'Hreflang codes', 'Error count', 'Warning count', 'Info count', 'Issues']];
+  const rows = [[
+    'Record type', 'URL', 'Status', 'Lang', 'Title', 'Meta description', 'Canonical', 'Robots', 'X-Robots-Tag',
+    'H1 count', 'H1 text', 'Word count', 'Image count', 'Images missing alt', 'Hreflang codes', 'Hreflang targets',
+    'JSON-LD types', 'Error count', 'Warning count', 'Info count', 'Sitemaps parsed', 'Sitemap URLs discovered', 'Issues',
+  ]];
+  const siteIssues = latestResult.siteIssues || [];
+  const siteCount = (severity) => siteIssues.filter((issue) => issue.severity === severity).length;
+  rows.push([
+    'site', latestResult.origin, latestResult.site?.robotsTxt?.status || '', '', '', '', '', '', '', '', '', '', '', '', '', '', '',
+    siteCount('error'), siteCount('warning'), siteCount('info'), (latestResult.site?.sitemaps || []).length, latestResult.site?.sitemapUrlsDiscovered || 0,
+    siteIssues.map((issue) => issue.severity + ': ' + issue.message).join(' | '),
+  ]);
   for (const page of latestResult.pages) {
     const count = (severity) => page.issues.filter((issue) => issue.severity === severity).length;
     rows.push([
-      page.url,
-      page.status,
-      page.lang || '',
-      page.title,
-      page.description,
-      page.canonical || '',
-      page.hreflangs.map((entry) => entry.lang).join(' | '),
-      count('error'),
-      count('warning'),
-      count('info'),
-      page.issues.map((issue) => `${issue.severity}: ${issue.message}`).join(' | '),
+      'page', page.url, page.status, page.lang || '', page.title, page.description, page.canonical || '', page.robots || '', page.xRobotsTag || '',
+      page.headings?.h1Count ?? '', (page.headings?.h1 || []).join(' | '), page.wordCount ?? '', page.images?.total ?? '', page.images?.missingAlt ?? '',
+      page.hreflangs.map((entry) => entry.lang).join(' | '), page.hreflangs.map((entry) => entry.lang + ' => ' + entry.href).join(' | '),
+      (page.structuredData?.types || []).join(' | '), count('error'), count('warning'), count('info'), '', '',
+      page.issues.map((issue) => issue.severity + ': ' + issue.message).join(' | '),
     ]);
   }
   download('multilingual-seo-audit.csv', rows.map((row) => row.map(csvEscape).join(',')).join('\n'), 'text/csv;charset=utf-8');

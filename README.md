@@ -2,7 +2,7 @@
 
 **Live demo:** https://seo-audit.rehmeier.es/
 
-An open-source multilingual technical SEO auditor built with **Laravel 13** and PHP.
+An open-source multilingual technical SEO auditor built with **Laravel 13** and PHP. Current application version: **0.3.0**.
 
 It crawls a same-origin website and reports concrete technical issues instead of inventing an opaque SEO score.
 
@@ -11,21 +11,27 @@ It crawls a same-origin website and reports concrete technical issues instead of
 - `hreflang` extraction
 - self-referencing hreflang
 - reciprocal hreflang between crawled pages
+- hreflang target status, indexability and canonical consistency
 - duplicate and suspicious hreflang codes
 - `<html lang>`
 - canonical tags
 - missing and duplicate titles
 - missing and duplicate meta descriptions
-- title/meta display-length heuristics
+- title/meta display-length heuristics with lower-noise severity rules
 - Open Graph metadata
 - Twitter/X card metadata
 - JSON-LD validity and discovered schema types
+- robots.txt and XML sitemap discovery
+- meta robots and X-Robots-Tag noindex reporting
+- H1 structure, visible-word heuristic and missing image alt attributes
+- broken internal links when their targets are included in the crawl
+- canonical target status/indexability checks
 - HTTP/fetch failures
 - CSV and JSON exports
 
 ## Tech stack
 
-- PHP 8.3+
+- PHP 8.4+
 - Laravel 13
 - Laravel HTTP client / Guzzle
 - native PHP DOMDocument + DOMXPath
@@ -37,7 +43,7 @@ No database is required for V1.
 
 ## Local setup
 
-Requirements: PHP 8.3+ and Composer 2.
+Requirements: PHP 8.4+ and Composer 2.
 
 ```bash
 composer install
@@ -129,7 +135,7 @@ There is **no Node.js/Passenger runtime** in the Laravel version.
 
 ## CI/CD
 
-Every push to `main` is tested on PHP 8.3, 8.4 and 8.5.
+Every push to `main` is tested on PHP 8.4 and 8.5.
 
 After the test job succeeds, GitHub Actions promotes the exact tested commit to the `production` branch. Plesk can watch that branch through its Git webhook and deploy it automatically.
 
@@ -150,17 +156,17 @@ Composer + Laravel deployment
 - raw server-returned HTML only; JavaScript rendering is not included
 - hreflang in XML sitemaps and HTTP `Link` headers is not yet parsed
 - no automatic language/content detection yet
-- reciprocal hreflang checks cover URLs present in the current crawl
+- reciprocal hreflang and link-target checks cover URLs present in the current crawl
+- sitemap discovery is capped at 8 sitemap files and 1,000 discovered URLs per audit
 - structured-data checks validate JSON and discover types, but do not yet validate every rich-result requirement
 
 ## Roadmap
 
 ### V1.1
 
-- sitemap discovery
-- robots/noindex reporting
-- broken internal links
-- stronger hreflang language/region validation
+- hreflang extraction from XML sitemaps and HTTP `Link` headers
+- stricter ISO language/region validation
+- crawl coverage and orphan-page reporting
 - shareable audit reports
 
 ### V2
