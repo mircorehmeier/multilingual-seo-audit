@@ -133,6 +133,26 @@ multilingual-seo-audit/
 └─ README.md
 ```
 
+
+## Plesk deployment
+
+The repository includes `deploy.sh` for Plesk Git deployments.
+
+Recommended Plesk setup:
+
+- Remote repository: this GitHub repository
+- Active branch: `main`
+- Deployment mode: Automatic
+- Application root: repository/deployment root
+- Document root: `public`
+- Startup file: `app.js`
+- Node.js: 22
+- Additional deployment action: `sh deploy.sh`
+
+The script installs dependencies, compiles TypeScript and touches `tmp/restart.txt` so the Node.js application restarts after a successful build.
+
+For remote Git automatic deployment, configure the Plesk-generated webhook URL in GitHub for push events.
+
 ## License
 
 MIT © 2026 Mirco Rehmeier
