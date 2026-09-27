@@ -628,10 +628,10 @@ class HtmlAuditor
         foreach ($sets as $set) {
             foreach ($set as $entry) {
                 $lang = strtolower($this->clean((string) ($entry['lang'] ?? '')));
-                $href = $this->urls->resolve((string) ($entry['base'] ?? ''), (string) ($entry['href'] ?? ''));
+                $href = $entry['href'] ?? null;
 
-                if (($entry['base'] ?? '') === '') {
-                    $href = $entry['href'] ?? null;
+                if (isset($entry['base']) && is_string($href)) {
+                    $href = $this->urls->resolve((string) $entry['base'], $href);
                 }
 
                 if ($lang === '' || ! is_string($href) || $href === '') {
@@ -639,15 +639,23 @@ class HtmlAuditor
                 }
 
                 $key = $lang.'|'.$this->urls->normalize($href);
+                $source = (string) ($entry['source'] ?? 'external');
+
                 if (isset($seen[$key])) {
+                    $index = $seen[$key];
+                    $sources = array_values(array_unique(array_filter(array_merge(
+                        explode('+', (string) ($merged[$index]['source'] ?? '')),
+                        explode('+', $source),
+                    ))));
+                    $merged[$index]['source'] = implode('+', $sources);
                     continue;
                 }
 
-                $seen[$key] = true;
+                $seen[$key] = count($merged);
                 $merged[] = [
                     'lang' => $lang,
                     'href' => $href,
-                    'source' => (string) ($entry['source'] ?? 'external'),
+                    'source' => $source,
                 ];
             }
         }
