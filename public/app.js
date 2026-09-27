@@ -162,17 +162,25 @@ downloadJson.addEventListener('click', () => {
 
 downloadCsv.addEventListener('click', () => {
   if (!latestResult) return;
-  const rows = [['Record type', 'URL', 'Status', 'Lang', 'Title', 'Meta description', 'Canonical', 'Robots', 'X-Robots-Tag', 'H1 count', 'Word count', 'Image count', 'Images missing alt', 'Hreflang codes', 'Error count', 'Warning count', 'Info count', 'Issues']];
-  if (latestResult.siteIssues?.length) {
-    const count = (severity) => latestResult.siteIssues.filter((issue) => issue.severity === severity).length;
-    rows.push(['site', latestResult.origin, latestResult.site?.robotsTxt?.status || '', '', '', '', '', '', '', '', '', '', '', '', count('error'), count('warning'), count('info'), latestResult.siteIssues.map((issue) => issue.severity + ': ' + issue.message).join(' | ')]);
-  }
+  const rows = [[
+    'Record type', 'URL', 'Status', 'Lang', 'Title', 'Meta description', 'Canonical', 'Robots', 'X-Robots-Tag',
+    'H1 count', 'H1 text', 'Word count', 'Image count', 'Images missing alt', 'Hreflang codes', 'Hreflang targets',
+    'JSON-LD types', 'Error count', 'Warning count', 'Info count', 'Sitemaps parsed', 'Sitemap URLs discovered', 'Issues',
+  ]];
+  const siteIssues = latestResult.siteIssues || [];
+  const siteCount = (severity) => siteIssues.filter((issue) => issue.severity === severity).length;
+  rows.push([
+    'site', latestResult.origin, latestResult.site?.robotsTxt?.status || '', '', '', '', '', '', '', '', '', '', '', '', '', '', '',
+    siteCount('error'), siteCount('warning'), siteCount('info'), (latestResult.site?.sitemaps || []).length, latestResult.site?.sitemapUrlsDiscovered || 0,
+    siteIssues.map((issue) => issue.severity + ': ' + issue.message).join(' | '),
+  ]);
   for (const page of latestResult.pages) {
     const count = (severity) => page.issues.filter((issue) => issue.severity === severity).length;
     rows.push([
       'page', page.url, page.status, page.lang || '', page.title, page.description, page.canonical || '', page.robots || '', page.xRobotsTag || '',
-      page.headings?.h1Count ?? '', page.wordCount ?? '', page.images?.total ?? '', page.images?.missingAlt ?? '',
-      page.hreflangs.map((entry) => entry.lang).join(' | '), count('error'), count('warning'), count('info'),
+      page.headings?.h1Count ?? '', (page.headings?.h1 || []).join(' | '), page.wordCount ?? '', page.images?.total ?? '', page.images?.missingAlt ?? '',
+      page.hreflangs.map((entry) => entry.lang).join(' | '), page.hreflangs.map((entry) => entry.lang + ' => ' + entry.href).join(' | '),
+      (page.structuredData?.types || []).join(' | '), count('error'), count('warning'), count('info'), '', '',
       page.issues.map((issue) => issue.severity + ': ' + issue.message).join(' | '),
     ]);
   }
