@@ -184,7 +184,7 @@ class HtmlAuditor
 
         if ($titleLength === 0) {
             $this->issue($page, 'title_missing', 'error', 'Missing <title>.');
-        } elseif ($titleLength < 30) {
+        } elseif ($titleLength < 20) {
             $this->issue($page, 'title_short', 'info', "Title is {$titleLength} characters (display heuristic, not a ranking rule).");
         } elseif ($titleLength > 60) {
             $this->issue($page, 'title_long', 'info', "Title is {$titleLength} characters (display heuristic, not a ranking rule).");
@@ -246,7 +246,7 @@ class HtmlAuditor
             $this->issue($page, 'image_alt_missing', 'warning', "{$count} image(s) are missing an alt attribute.");
         }
 
-        if ($page['wordCount'] > 0 && $page['wordCount'] < 80) {
+        if ($page['wordCount'] > 0 && $page['wordCount'] < 50) {
             $this->issue($page, 'content_thin', 'info', 'Page has about '.$page['wordCount'].' visible words; review whether the amount of content is intentional.');
         }
 
