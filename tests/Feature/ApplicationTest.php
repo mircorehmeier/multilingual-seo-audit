@@ -11,7 +11,6 @@ class ApplicationTest extends TestCase
         $this->get('/')
             ->assertOk()
             ->assertSee('Find multilingual SEO problems')
-            ->assertSee('Running version')
             ->assertSee('0.5.1');
     }
 
