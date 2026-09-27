@@ -1638,6 +1638,11 @@ class SiteAuditor
             'lang' => null,
             'robots' => null,
             'xRobotsTag' => null,
+            'robotsTxt' => [
+                'allowed' => true,
+                'matchedDirective' => null,
+                'matchedRule' => null,
+            ],
             'hreflangs' => [],
             'headings' => [
                 'h1Count' => 0,
@@ -1653,6 +1658,7 @@ class SiteAuditor
             'detectedLang' => null,
             'languageConfidence' => 0.0,
             'contentHash' => null,
+            'contentHashStatus' => 'not generated (fetch failed)',
             'openGraph' => [
                 'title' => null,
                 'description' => null,
@@ -1667,9 +1673,14 @@ class SiteAuditor
             ],
             'structuredData' => [
                 'scripts' => 0,
-                'valid' => 0,
-                'invalid' => 0,
+                'parseable' => 0,
+                'invalidSyntax' => 0,
                 'types' => [],
+                'semanticIssues' => [],
+            ],
+            'socialImages' => [
+                'openGraph' => null,
+                'twitter' => null,
             ],
             'issues' => [[
                 'code' => 'fetch_failed',
@@ -1677,6 +1688,7 @@ class SiteAuditor
                 'message' => $message,
             ]],
             'links' => [],
+            'linkDetails' => [],
         ];
     }
 
