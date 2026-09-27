@@ -75,6 +75,7 @@ class SocialImageInspector
                     $body !== ''
                     && strlen($body) <= self::MAX_BYTES_FOR_DIMENSIONS
                     && str_starts_with($contentType, 'image/')
+                    && function_exists('getimagesizefromstring')
                 ) {
                     $size = @getimagesizefromstring($body);
                     if (is_array($size)) {
