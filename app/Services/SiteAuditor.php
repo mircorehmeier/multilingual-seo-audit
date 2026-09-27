@@ -542,16 +542,17 @@ class SiteAuditor
         int $timeout = self::TIMEOUT,
     ): array {
         $currentUrl = $url;
+        $chain = [];
 
         for ($hop = 0; $hop < 5; $hop++) {
             if (! in_array($response->status(), [301, 302, 303, 307, 308], true)) {
-                return [$response, $currentUrl];
+                return [$response, $currentUrl, $chain];
             }
 
             $location = trim($response->header('Location'));
 
             if ($location === '') {
-                return [$response, $currentUrl];
+                return [$response, $currentUrl, $chain];
             }
 
             $resolved = $this->urls->resolve($currentUrl, $location);
@@ -560,7 +561,13 @@ class SiteAuditor
                 throw new \RuntimeException('Redirect target is invalid.');
             }
 
-            $currentUrl = $this->urls->assertPublic($resolved);
+            $targetUrl = $this->urls->assertPublic($resolved);
+            $chain[] = [
+                'from' => $currentUrl,
+                'status' => $response->status(),
+                'to' => $targetUrl,
+            ];
+            $currentUrl = $targetUrl;
 
             $response = Http::withHeaders([
                     'User-Agent' => self::USER_AGENT,
