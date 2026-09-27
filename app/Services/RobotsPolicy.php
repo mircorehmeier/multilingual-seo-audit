@@ -128,7 +128,7 @@ class RobotsPolicy
                 continue;
             }
 
-            $specificity = mb_strlen(str_replace(';
+            $specificity = mb_strlen(str_replace('$', '', $pattern));
             $candidate = [
                 'directive' => strtolower((string) ($rule['directive'] ?? 'disallow')),
                 'pattern' => $pattern,
