@@ -9,7 +9,7 @@ echo "==> Working directory: $(pwd)"
 
 PHP_BIN=""
 
-for VERSION in 8.5 8.4 8.3; do
+for VERSION in 8.4 8.3 8.5; do
     CANDIDATE="/opt/plesk/php/$VERSION/bin/php"
     if [ -x "$CANDIDATE" ]; then
         PHP_BIN="$CANDIDATE"
@@ -51,7 +51,7 @@ if [ ! -f .env ]; then
     echo "==> Created .env from .env.example"
 fi
 
-mkdir -p storage/framework/cache storage/framework/sessions storage/framework/views storage/logs bootstrap/cache
+mkdir -p storage/framework/cache/data storage/framework/sessions storage/framework/views storage/logs bootstrap/cache
 chmod -R ug+rw storage bootstrap/cache || true
 
 echo "==> Installing Composer dependencies"
