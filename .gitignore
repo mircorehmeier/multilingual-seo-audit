@@ -1,5 +1,11 @@
-node_modules/
-dist/
+/vendor/
 .env
+.env.backup
+.env.production
+.phpunit.cache/
+.phpunit.result.cache
+/public/hot
+/public/storage
+/storage/*.key
 .DS_Store
-npm-debug.log*
+deploy.log
