@@ -104,7 +104,7 @@ HTML;
 <body>
 <main>
 <h1>Contact</h1>
-<p>This contact page gives visitors a direct way to get in touch about projects, partnerships, products and general enquiries. It intentionally stays concise while still explaining what the form is for and how it should be used.</p>
+<p>This contact page gives visitors a direct way to get in touch about projects, partnerships, products and general enquiries. It intentionally stays concise while still explaining what the form is for and how it should be used. Visitors can also use the page to ask questions about current work, discuss possible collaborations, or request more information before starting a conversation.</p>
 </main>
 </body>
 </html>
