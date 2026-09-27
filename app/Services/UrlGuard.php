@@ -47,14 +47,19 @@ class UrlGuard
             }
         }
 
+        ksort($query);
+
         $port = $uri->getPort();
         if (($uri->getScheme() === 'https' && $port === 443) || ($uri->getScheme() === 'http' && $port === 80)) {
             $port = null;
         }
 
+        $path = $uri->getPath() === '' ? '/' : $uri->getPath();
+
         return (string) $uri
             ->withHost($host)
             ->withPort($port)
+            ->withPath($path)
             ->withFragment('')
             ->withQuery(http_build_query($query, '', '&', PHP_QUERY_RFC3986));
     }
