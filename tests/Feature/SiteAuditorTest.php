@@ -60,8 +60,10 @@ HTML;
         $this->assertSame(2, $result['summary']['pages']);
         $this->assertSame(2, $result['summary']['sitemapUrls']);
         $this->assertCount(2, array_unique(array_column($result['pages'], 'url')));
+        $this->assertSame(2, $result['summary']['indexablePages']);
 
         foreach ($result['pages'] as $auditedPage) {
+            $this->assertSame('indexable', $auditedPage['indexability']['status']);
             $issueMap = [];
             foreach ($auditedPage['issues'] as $issue) {
                 $issueMap[$issue['code']] = $issue['severity'];
