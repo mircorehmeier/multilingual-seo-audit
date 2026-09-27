@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Multilingual SEO Audit</title>
-  <meta name="description" content="Audit canonical tags, hreflang, metadata, social cards and structured data across multilingual websites.">
+  <meta name="description" content="Audit hreflang, canonicals, indexability, metadata, sitemaps, links, headings, images and structured data across multilingual websites.">
   <meta name="color-scheme" content="light dark">
   <link rel="stylesheet" href="/styles.css">
 </head>
@@ -21,7 +21,7 @@
     <section class="hero">
       <p class="eyebrow">Technical SEO · EN / ES / DE and beyond</p>
       <h1>Find multilingual SEO problems before search engines do.</h1>
-      <p class="intro">Crawl a website and inspect hreflang, canonical tags, titles, descriptions, social cards, language declarations and JSON-LD — without a black-box SEO score.</p>
+      <p class="intro">Crawl a website and inspect hreflang, canonical tags, indexability, metadata, sitemaps, links, headings, images, social cards and JSON-LD — without a black-box SEO score.</p>
 
       <form id="audit-form" class="audit-form">
         <label class="url-field">
@@ -39,7 +39,7 @@
         </label>
         <button id="run-button" type="submit">Run audit</button>
       </form>
-      <p class="form-note">Same-origin crawl only · Public HTTP/HTTPS targets · Maximum 100 pages</p>
+      <p class="form-note">Same-origin crawl · Sitemap-assisted discovery · Public HTTP/HTTPS targets · Maximum 100 pages</p>
       <div id="status" class="status" aria-live="polite"></div>
     </section>
 
@@ -57,6 +57,11 @@
       </div>
 
       <div id="summary" class="summary-grid"></div>
+
+      <div id="site-diagnostics" class="site-diagnostics" hidden>
+        <div><strong>Site-level checks</strong><span id="site-diagnostics-meta" class="muted"></span></div>
+        <div id="site-issues-list" class="site-issues-list"></div>
+      </div>
 
       <div class="toolbar">
         <label>
@@ -93,14 +98,14 @@
     <section class="explain">
       <div>
         <p class="eyebrow">What it checks</p>
-        <h2>Built for multilingual sites, not generic scores.</h2>
+        <h2>Built for multilingual sites, with fewer false positives.</h2>
       </div>
       <div class="check-grid">
-        <article><h3>Hreflang</h3><p>Self references, duplicate language codes and reciprocal alternates between crawled pages.</p></article>
-        <article><h3>Metadata</h3><p>Missing, duplicate and display-length heuristics for titles and meta descriptions.</p></article>
+        <article><h3>Hreflang</h3><p>Self references, code checks, reciprocal alternates, target status, indexability and canonical consistency.</p></article>
+        <article><h3>Metadata</h3><p>Missing and duplicate titles/descriptions with language-aware duplicate handling and low-severity display heuristics.</p></article>
         <article><h3>Canonical</h3><p>Missing, invalid or multiple canonical tags and pages that canonicalize elsewhere.</p></article>
         <article><h3>Social</h3><p>Open Graph and Twitter/X card metadata for cleaner shared previews.</p></article>
-        <article><h3>Language</h3><p>HTML language declarations plus the language codes discovered in hreflang sets.</p></article>
+        <article><h3>Sitemaps & links</h3><p>robots.txt sitemap discovery, XML sitemap parsing and broken internal links when their targets are crawled.</p></article>
         <article><h3>Structured data</h3><p>JSON-LD parsing, invalid blocks and discovered schema types.</p></article>
       </div>
     </section>
@@ -108,7 +113,7 @@
 
   <footer>
     <p>Open-source project by <a href="https://rehmeier.es/" target="_blank" rel="noreferrer">Mirco Rehmeier</a>.</p>
-    <p>Length checks are display heuristics, not Google ranking rules.</p>
+    <p>Length and thin-content checks are heuristics, not Google ranking rules.</p>
   </footer>
 
   <template id="page-row-template">
