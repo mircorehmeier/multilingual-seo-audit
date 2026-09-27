@@ -522,7 +522,7 @@ class HtmlAuditor
         ];
     }
 
-    private function collectStructuredDataSemanticIssues(mixed $node, array &$issues): void
+    private function collectStructuredDataSemanticIssues(mixed $node, array &$issues, bool $contextInherited = false): void
     {
         if (! is_array($node)) {
             return;
@@ -530,13 +530,15 @@ class HtmlAuditor
 
         if (array_is_list($node)) {
             foreach ($node as $value) {
-                $this->collectStructuredDataSemanticIssues($value, $issues);
+                $this->collectStructuredDataSemanticIssues($value, $issues, $contextInherited);
             }
             return;
         }
 
+        $hasContext = isset($node['@context']) || $contextInherited;
+
         if (isset($node['@graph']) && is_array($node['@graph'])) {
-            $this->collectStructuredDataSemanticIssues($node['@graph'], $issues);
+            $this->collectStructuredDataSemanticIssues($node['@graph'], $issues, $hasContext);
         }
 
         $types = array_values(array_filter(
@@ -552,7 +554,7 @@ class HtmlAuditor
             ];
         }
 
-        if ($types !== [] && ! isset($node['@context'])) {
+        if ($types !== [] && ! $hasContext) {
             $issues[] = [
                 'code' => 'jsonld_context_missing',
                 'severity' => 'info',
@@ -592,7 +594,7 @@ class HtmlAuditor
             }
 
             if (is_array($value)) {
-                $this->collectStructuredDataSemanticIssues($value, $issues);
+                $this->collectStructuredDataSemanticIssues($value, $issues, $hasContext);
             }
         }
     }
