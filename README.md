@@ -1,5 +1,8 @@
 # Multilingual SEO Audit
 
+**Live demo:** https://seo-audit.rehmeier.es/
+
+
 A lightweight open-source web tool for auditing **multilingual technical SEO**: hreflang, canonical tags, titles, meta descriptions, language declarations, Open Graph/Twitter cards and JSON-LD.
 
 It is deliberately not another opaque “SEO score”. The output is a list of concrete, inspectable signals and issues per URL.
