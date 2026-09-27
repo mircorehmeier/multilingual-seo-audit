@@ -129,9 +129,8 @@ class HtmlAuditor
         $visibleText = $this->visibleText($xpath);
         $wordCount = $this->countWords($visibleText);
         $languageDetection = $this->languageDetector->detect($visibleText);
-        $fingerprintText = $this->fingerprintText($xpath);
-        $contentHash = $this->countWords($fingerprintText) >= 80
-            ? hash('sha256', $this->normalizeForHash($fingerprintText))
+        $contentHash = $wordCount >= 80
+            ? hash('sha256', $this->normalizeForHash($visibleText))
             : null;
         $structuredData = $this->structuredData($xpath);
 
