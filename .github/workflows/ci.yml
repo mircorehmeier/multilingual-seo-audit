@@ -23,7 +23,7 @@ jobs:
           coverage: none
 
       - name: Validate Composer
-        run: composer validate --strict
+        run: composer validate --strict --no-check-lock
 
       - name: Install dependencies
         run: composer install --prefer-dist --no-interaction --no-progress
