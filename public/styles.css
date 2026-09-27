@@ -71,7 +71,7 @@ h2 { margin: 0; font-size: clamp(1.8rem, 3vw, 2.8rem); letter-spacing: -.035em; 
 .secondary { min-height: 42px; padding: 0 15px; border: 1px solid var(--line); border-radius: 10px; background: white; color: var(--ink); font-weight: 700; }
 .secondary:hover { border-color: #b7c6bd; background: #f8faf9; }
 
-.summary-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin: 28px 0 24px; }
+.summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin: 28px 0 24px; }
 .summary-card { padding: 18px; border: 1px solid var(--line); border-radius: 15px; background: white; }
 .summary-card span { display: block; color: var(--muted); font-size: .82rem; }
 .summary-card strong { display: block; margin-top: 7px; font-size: 1.8rem; letter-spacing: -.04em; }
@@ -79,6 +79,9 @@ h2 { margin: 0; font-size: clamp(1.8rem, 3vw, 2.8rem); letter-spacing: -.035em; 
 .summary-card.warning strong { color: var(--warn); }
 .summary-card.info strong { color: var(--info); }
 
+.site-diagnostics { margin: 0 0 20px; padding: 18px; border: 1px solid var(--line); border-radius: 15px; background: #f8faf9; }
+.site-diagnostics > div:first-child { display: flex; gap: 12px; justify-content: space-between; align-items: baseline; flex-wrap: wrap; }
+.site-issues-list { margin-top: 12px; }
 .toolbar { display: grid; grid-template-columns: 190px 1fr; gap: 10px; margin: 20px 0 12px; }
 .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 15px; }
 table { width: 100%; border-collapse: collapse; background: white; }
