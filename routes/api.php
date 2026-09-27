@@ -5,7 +5,7 @@ use Illuminate\Support\Facades\Route;
 
 Route::get('/health', fn () => [
     'ok' => true,
-    'version' => '0.4.0-laravel',
+    'version' => config('audit.version').'-laravel',
 ]);
 
 Route::post('/audit', AuditController::class)
