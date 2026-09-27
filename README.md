@@ -2,156 +2,173 @@
 
 **Live demo:** https://seo-audit.rehmeier.es/
 
+An open-source multilingual technical SEO auditor built with **Laravel 13** and PHP.
 
-A lightweight open-source web tool for auditing **multilingual technical SEO**: hreflang, canonical tags, titles, meta descriptions, language declarations, Open Graph/Twitter cards and JSON-LD.
+It crawls a same-origin website and reports concrete technical issues instead of inventing an opaque SEO score.
 
-It is deliberately not another opaque “SEO score”. The output is a list of concrete, inspectable signals and issues per URL.
+## What it checks
 
-## Why this exists
+- `hreflang` extraction
+- self-referencing hreflang
+- reciprocal hreflang between crawled pages
+- duplicate and suspicious hreflang codes
+- `<html lang>`
+- canonical tags
+- missing and duplicate titles
+- missing and duplicate meta descriptions
+- title/meta display-length heuristics
+- Open Graph metadata
+- Twitter/X card metadata
+- JSON-LD validity and discovered schema types
+- HTTP/fetch failures
+- CSV and JSON exports
 
-Multilingual sites fail in ways that generic page checkers often hide: missing self-referencing hreflang, non-reciprocal alternates, inconsistent language declarations, duplicate metadata across translated sections, or canonicals that quietly point somewhere else.
+## Tech stack
 
-This project focuses on those problems first.
+- PHP 8.3+
+- Laravel 13
+- Laravel HTTP client / Guzzle
+- native PHP DOMDocument + DOMXPath
+- vanilla JavaScript and CSS
+- PHPUnit
+- GitHub Actions
 
-## V1 features
+No database is required for V1.
 
-- Same-origin crawl of up to 100 pages
-- `hreflang` extraction and self-reference checks
-- Reciprocal `hreflang` checks between audited pages
-- Duplicate hreflang-code detection
-- `<html lang>` extraction
-- Canonical tag checks
-- Missing and duplicate titles/meta descriptions
-- Title/meta display-length **heuristics** (not ranking rules)
-- Open Graph metadata checks
-- Twitter/X card metadata checks
-- JSON-LD parsing and discovered schema types
-- Error / warning / info filtering
-- URL/title/issue search
-- JSON and CSV exports
-- Basic SSRF protection for public deployments
-- Responsive, dependency-light frontend
+## Local setup
 
-## Quick start
-
-Requirements: Node.js 22+
+Requirements: PHP 8.3+ and Composer 2.
 
 ```bash
-npm install
-npm run dev
+composer install
+cp .env.example .env
+php artisan key:generate
+php artisan serve
 ```
 
-Open `http://localhost:3000` and enter a public website URL. Use the crawler responsibly on sites you own or are authorized to audit.
+Open `http://127.0.0.1:8000`.
 
 Run tests:
 
 ```bash
-npm test
+php artisan test
 ```
 
-Compile TypeScript:
+## API
+
+### Health
+
+```text
+GET /api/health
+```
+
+### Audit
+
+```text
+POST /api/audit
+Content-Type: application/json
+```
+
+Example:
+
+```json
+{
+  "url": "https://example.com",
+  "maxPages": 25
+}
+```
+
+The crawler accepts public HTTP/HTTPS targets only and limits each audit to 100 pages.
+
+## Security
+
+Because the application fetches user-provided URLs, SSRF protection is part of the core design.
+
+Targets are rejected when they:
+
+- use a non-HTTP(S) scheme
+- contain URL credentials
+- use localhost/local/internal hostnames
+- resolve to private or reserved IPv4/IPv6 addresses
+
+Redirect targets are validated again before they are fetched.
+
+The public API is also rate-limited.
+
+## Plesk deployment
+
+The production repository is deployed to:
+
+```text
+/seo-audit
+```
+
+and the domain document root must be:
+
+```text
+/seo-audit/public
+```
+
+The repository includes `deploy.sh`. Recommended Plesk Git additional deployment action:
 
 ```bash
-npm run build
+sh "$HOME/seo-audit/deploy.sh" > "$HOME/seo-audit/deploy.log" 2>&1
 ```
 
-## How checks are interpreted
+The script:
 
-The tool intentionally separates **technical errors** from **heuristics**.
+1. finds a compatible Plesk PHP 8.3+ binary
+2. runs Composer install with an optimized production autoloader
+3. creates/preserves the Laravel `.env`
+4. creates `APP_KEY` if necessary
+5. clears stale Laravel caches
+6. caches configuration and Blade views
+7. writes `public/deploy-status.txt`
 
-Examples:
+There is **no Node.js/Passenger runtime** in the Laravel version.
 
-- A missing `<title>` is an error.
-- Invalid JSON-LD is an error.
-- Missing `rel="canonical"` is a warning.
-- A title above 60 characters is a display heuristic, not a claim that Google penalizes it.
-- Missing Open Graph fields are informational because they primarily affect sharing previews.
+## CI/CD
 
-For multilingual pages, Google documents that each language version should list itself and the alternate language versions, and that alternate URLs should be fully qualified. This project uses those concrete relationships rather than inventing a score.
+Every push to `main` is tested on PHP 8.3, 8.4 and 8.5.
 
-## Security model
+After the test job succeeds, GitHub Actions promotes the exact tested commit to the `production` branch. Plesk can watch that branch through its Git webhook and deploy it automatically.
 
-The server fetches user-provided public URLs. To reduce SSRF exposure it rejects:
-
-- non-HTTP(S) schemes
-- URLs containing credentials
-- localhost / `.local` targets
-- private and reserved IPv4 ranges
-- local/link-local/unique-local IPv6 ranges
-- redirects that resolve to blocked targets
-
-Production deployments should additionally use reverse-proxy rate limiting and sensible infrastructure-level timeouts.
+```text
+main
+  ↓
+GitHub Actions
+  ↓ tests pass
+production
+  ↓
+Plesk Git
+  ↓
+Composer + Laravel deployment
+```
 
 ## Current limitations
 
-V1 is intentionally small:
-
-- It audits raw server-returned HTML; it does not render JavaScript.
-- It does not attempt automatic content-language detection.
-- It does not validate every Schema.org property or Google rich-result requirement.
-- Reciprocal hreflang checks are limited to URLs included in the current crawl.
-- It does not yet parse hreflang from XML sitemaps or HTTP `Link` headers.
-
-Those are good candidates for future versions rather than reasons to make V1 harder to understand.
+- raw server-returned HTML only; JavaScript rendering is not included
+- hreflang in XML sitemaps and HTTP `Link` headers is not yet parsed
+- no automatic language/content detection yet
+- reciprocal hreflang checks cover URLs present in the current crawl
+- structured-data checks validate JSON and discover types, but do not yet validate every rich-result requirement
 
 ## Roadmap
 
 ### V1.1
 
-- Sitemap discovery/import
-- HTTP `Link` header hreflang
-- Broken internal link reporting
-- robots/noindex visibility report
+- sitemap discovery
+- robots/noindex reporting
+- broken internal links
 - stronger hreflang language/region validation
+- shareable audit reports
 
-### V2 — assisted fixes
+### V2
 
-- Suggested title/meta rewrites
-- Multilingual metadata consistency suggestions
-- Search-intent mismatch hints between translated pages
-- Explain-why guidance for each issue
-
-AI-assisted suggestions should remain optional: the deterministic audit must stay useful on its own.
-
-## Project structure
-
-```text
-multilingual-seo-audit/
-├─ public/
-│  ├─ index.html
-│  ├─ styles.css
-│  └─ app.js
-├─ src/
-│  ├─ audit.ts
-│  └─ server.ts
-├─ tests/
-│  └─ audit.test.ts
-├─ .github/workflows/ci.yml
-├─ CONTRIBUTING.md
-├─ SECURITY.md
-├─ LICENSE
-└─ README.md
-```
-
-
-## Plesk deployment
-
-The repository includes `deploy.sh` for Plesk Git deployments.
-
-Recommended Plesk setup:
-
-- Remote repository: this GitHub repository
-- Active branch: `main`
-- Deployment mode: Automatic
-- Application root: repository/deployment root
-- Document root: `public`
-- Startup file: `app.js`
-- Node.js: 22
-- Additional deployment action: `sh deploy.sh`
-
-The script installs dependencies, compiles TypeScript and touches `tmp/restart.txt` so the Node.js application restarts after a successful build.
-
-For remote Git automatic deployment, configure the Plesk-generated webhook URL in GitHub for push events.
+- optional AI-assisted title/meta suggestions
+- multilingual metadata consistency suggestions
+- issue explanations and suggested fixes
+- scheduled audits
 
 ## License
 
