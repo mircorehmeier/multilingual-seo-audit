@@ -148,4 +148,30 @@ HTML;
         $this->assertNotNull($page['contentHash']);
     }
 
+
+    public function test_heading_text_preserves_spaces_across_br_elements(): void
+    {
+        $auditor = new HtmlAuditor(new UrlGuard(), new LanguageDetector());
+
+        $html = <<<'HTML'
+<!doctype html>
+<html lang="en">
+<head>
+<title>Example portfolio page title</title>
+<meta name="description" content="A sufficiently useful description for the heading extraction test on this example page.">
+<link rel="canonical" href="https://example.com/portfolio/">
+<meta property="og:title" content="Example portfolio page title">
+<meta property="og:description" content="Description">
+<meta property="og:image" content="https://example.com/image.jpg">
+<meta name="twitter:card" content="summary_large_image">
+</head>
+<body><main><h1>Projects I build,<br><em>improve and grow.</em></h1></main></body>
+</html>
+HTML;
+
+        $page = $auditor->parse('https://example.com/portfolio/', 200, 'text/html', $html);
+
+        $this->assertSame('Projects I build, improve and grow.', $page['headings']['h1'][0]);
+    }
+
 }
