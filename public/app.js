@@ -203,7 +203,8 @@ downloadJson.addEventListener('click', () => {
 
 downloadCsv.addEventListener('click', () => {
   if (!latestResult) return;
-  const rows = [[
+
+  const headers = [
     'Record type', 'Audit generated at', 'Engine version', 'URL', 'Requested URL', 'Status', 'Lang', 'Detected lang', 'Language confidence',
     'Title', 'Meta description', 'Canonical', 'Indexability', 'Indexability reason', 'Robots', 'X-Robots-Tag', 'Redirect hops',
     'Incoming internal links', 'Outgoing internal links', 'Internal links to redirects', 'In sitemap', 'H1 count', 'H1 text', 'H2 count',
@@ -211,34 +212,82 @@ downloadCsv.addEventListener('click', () => {
     'OG title', 'OG description', 'OG image', 'OG URL', 'Twitter card', 'Twitter title', 'Twitter description', 'Twitter image',
     'JSON-LD blocks', 'JSON-LD valid', 'JSON-LD invalid', 'JSON-LD types', 'Content hash',
     'Error count', 'Warning count', 'Info count', 'Sitemaps parsed', 'Sitemap URLs discovered', 'Sitemap coverage %', 'Issues',
-  ]];
+  ];
+
+  const makeRow = (values) => headers.map((header) => values[header] ?? '');
+  const rows = [headers];
   const siteIssues = latestResult.siteIssues || [];
   const siteCount = (severity) => siteIssues.filter((issue) => issue.severity === severity).length;
-  rows.push([
-    'site', latestResult.auditedAt || '', latestResult.version || '', latestResult.origin, '', latestResult.site?.robotsTxt?.status || '', '', '', '', '', '', '',
-    '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '',
-    siteCount('error'), siteCount('warning'), siteCount('info'), (latestResult.site?.sitemaps || []).length, latestResult.site?.sitemapUrlsDiscovered || 0,
-    latestResult.site?.crawlCoverage?.percent ?? '',
-    siteIssues.map((issue) => issue.severity + ': ' + issue.message).join(' | '),
-  ]);
+
+  rows.push(makeRow({
+    'Record type': 'site',
+    'Audit generated at': latestResult.auditedAt || '',
+    'Engine version': latestResult.version || '',
+    'URL': latestResult.origin,
+    'Status': latestResult.site?.robotsTxt?.status || '',
+    'Error count': siteCount('error'),
+    'Warning count': siteCount('warning'),
+    'Info count': siteCount('info'),
+    'Sitemaps parsed': (latestResult.site?.sitemaps || []).length,
+    'Sitemap URLs discovered': latestResult.site?.sitemapUrlsDiscovered || 0,
+    'Sitemap coverage %': latestResult.site?.crawlCoverage?.percent ?? '',
+    'Issues': siteIssues.map((issue) => issue.severity + ': ' + issue.message).join(' | '),
+  }));
+
   for (const page of latestResult.pages) {
     const count = (severity) => page.issues.filter((issue) => issue.severity === severity).length;
-    rows.push([
-      'page', latestResult.auditedAt || '', latestResult.version || '', page.url, page.requestedUrl || page.url, page.status,
-      page.lang || '', page.detectedLang || '', page.languageConfidence ?? '', page.title, page.description, page.canonical || '',
-      page.indexability?.status || 'unknown', page.indexability?.reason || '', page.robots || '', page.xRobotsTag || '', (page.redirectChain || []).length,
-      page.internalLinks?.incoming ?? '', page.internalLinks?.outgoing ?? '', page.internalLinks?.redirecting ?? '', page.inSitemap ? 'yes' : 'no',
-      page.headings?.h1Count ?? '', (page.headings?.h1 || []).join(' | '), page.headings?.h2Count ?? '', page.wordCount ?? '',
-      page.images?.total ?? '', page.images?.missingAlt ?? '', page.images?.emptyAlt ?? '',
-      page.hreflangs.map((entry) => entry.lang).join(' | '), page.hreflangs.map((entry) => entry.lang + ' => ' + entry.href).join(' | '),
-      page.openGraph?.title || '', page.openGraph?.description || '', page.openGraph?.image || '', page.openGraph?.url || '',
-      page.twitter?.card || '', page.twitter?.title || '', page.twitter?.description || '', page.twitter?.image || '',
-      page.structuredData?.scripts ?? '', page.structuredData?.valid ?? '', page.structuredData?.invalid ?? '',
-      (page.structuredData?.types || []).join(' | '), page.contentHash || '',
-      count('error'), count('warning'), count('info'), '', '', '',
-      page.issues.map((issue) => issue.severity + ': ' + issue.message).join(' | '),
-    ]);
+
+    rows.push(makeRow({
+      'Record type': 'page',
+      'Audit generated at': latestResult.auditedAt || '',
+      'Engine version': latestResult.version || '',
+      'URL': page.url,
+      'Requested URL': page.requestedUrl || page.url,
+      'Status': page.status,
+      'Lang': page.lang || '',
+      'Detected lang': page.detectedLang || '',
+      'Language confidence': page.languageConfidence ?? '',
+      'Title': page.title,
+      'Meta description': page.description,
+      'Canonical': page.canonical || '',
+      'Indexability': page.indexability?.status || 'unknown',
+      'Indexability reason': page.indexability?.reason || '',
+      'Robots': page.robots || '',
+      'X-Robots-Tag': page.xRobotsTag || '',
+      'Redirect hops': (page.redirectChain || []).length,
+      'Incoming internal links': page.internalLinks?.incoming ?? '',
+      'Outgoing internal links': page.internalLinks?.outgoing ?? '',
+      'Internal links to redirects': page.internalLinks?.redirecting ?? '',
+      'In sitemap': page.inSitemap ? 'yes' : 'no',
+      'H1 count': page.headings?.h1Count ?? '',
+      'H1 text': (page.headings?.h1 || []).join(' | '),
+      'H2 count': page.headings?.h2Count ?? '',
+      'Word count': page.wordCount ?? '',
+      'Image count': page.images?.total ?? '',
+      'Images missing alt': page.images?.missingAlt ?? '',
+      'Images empty alt': page.images?.emptyAlt ?? '',
+      'Hreflang codes': page.hreflangs.map((entry) => entry.lang).join(' | '),
+      'Hreflang targets': page.hreflangs.map((entry) => entry.lang + ' => ' + entry.href).join(' | '),
+      'OG title': page.openGraph?.title || '',
+      'OG description': page.openGraph?.description || '',
+      'OG image': page.openGraph?.image || '',
+      'OG URL': page.openGraph?.url || '',
+      'Twitter card': page.twitter?.card || '',
+      'Twitter title': page.twitter?.title || '',
+      'Twitter description': page.twitter?.description || '',
+      'Twitter image': page.twitter?.image || '',
+      'JSON-LD blocks': page.structuredData?.scripts ?? '',
+      'JSON-LD valid': page.structuredData?.valid ?? '',
+      'JSON-LD invalid': page.structuredData?.invalid ?? '',
+      'JSON-LD types': (page.structuredData?.types || []).join(' | '),
+      'Content hash': page.contentHash || '',
+      'Error count': count('error'),
+      'Warning count': count('warning'),
+      'Info count': count('info'),
+      'Issues': page.issues.map((issue) => issue.severity + ': ' + issue.message).join(' | '),
+    }));
   }
+
   download('multilingual-seo-audit.csv', rows.map((row) => row.map(csvEscape).join(',')).join('\n'), 'text/csv;charset=utf-8');
 });
 
