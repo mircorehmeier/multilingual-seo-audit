@@ -65,7 +65,10 @@ function renderRows() {
     const issuesCell = row.querySelector('.issues-cell');
 
     pageCell.innerHTML = `<a class="page-url" href="${escapeHtml(page.url)}" target="_blank" rel="noreferrer">${escapeHtml(page.url)}</a><div class="page-title">${escapeHtml(page.title || 'No title')}</div>`;
-    langCell.innerHTML = page.lang ? `<span class="pill">${escapeHtml(page.lang)}</span>` : '—';
+    const detected = page.detectedLang
+      ? `<span class="pill detected-lang" title="Detected from visible content · confidence ${Math.round((page.languageConfidence || 0) * 100)}%">detected: ${escapeHtml(page.detectedLang)}</span>`
+      : '';
+    langCell.innerHTML = (page.lang ? `<span class="pill">${escapeHtml(page.lang)}</span>` : '—') + detected;
     hreflangCell.innerHTML = page.hreflangs.length
       ? page.hreflangs.map((entry) => `<span class="pill" title="${escapeHtml(entry.href)}">${escapeHtml(entry.lang)}</span>`).join('')
       : '—';
@@ -86,7 +89,9 @@ function renderSiteDiagnostics(result) {
   const robots = site.robotsTxt || {};
   const sitemapCount = (site.sitemaps || []).length;
   const sitemapUrls = site.sitemapUrlsDiscovered || 0;
-  siteDiagnosticsMeta.textContent = 'robots.txt: ' + (robots.status || 'not checked') + ' · ' + sitemapCount + ' sitemap' + (sitemapCount === 1 ? '' : 's') + ' parsed · ' + sitemapUrls + ' URL' + (sitemapUrls === 1 ? '' : 's') + ' discovered';
+  const coverage = site.crawlCoverage || {};
+  const coverageText = coverage.percent == null ? 'coverage n/a' : coverage.percent + '% sitemap coverage';
+  siteDiagnosticsMeta.textContent = 'robots.txt: ' + (robots.status || 'not checked') + ' · ' + sitemapCount + ' sitemap' + (sitemapCount === 1 ? '' : 's') + ' parsed · ' + sitemapUrls + ' URL' + (sitemapUrls === 1 ? '' : 's') + ' discovered · ' + coverageText;
   siteIssuesList.innerHTML = issues.length ? issues.map(issueHtml).join('') : '<span class="no-issues">No site-level issues found</span>';
   siteDiagnostics.hidden = false;
 }
@@ -104,6 +109,9 @@ function render(result) {
     summaryCard('Languages', result.summary.languages.length || '—'),
     summaryCard('Sitemap URLs', result.summary.sitemapUrls ?? '—'),
     summaryCard('Noindex pages', result.summary.noindexPages ?? 0),
+    summaryCard('Redirects', result.summary.redirects ?? 0),
+    summaryCard('Orphan candidates', result.summary.orphanCandidates ?? 0),
+    summaryCard('Duplicate groups', result.summary.duplicateContentGroups ?? 0),
   ].join('');
   renderSiteDiagnostics(result);
   renderRows();
@@ -163,24 +171,29 @@ downloadJson.addEventListener('click', () => {
 downloadCsv.addEventListener('click', () => {
   if (!latestResult) return;
   const rows = [[
-    'Record type', 'URL', 'Status', 'Lang', 'Title', 'Meta description', 'Canonical', 'Robots', 'X-Robots-Tag',
-    'H1 count', 'H1 text', 'Word count', 'Image count', 'Images missing alt', 'Hreflang codes', 'Hreflang targets',
-    'JSON-LD types', 'Error count', 'Warning count', 'Info count', 'Sitemaps parsed', 'Sitemap URLs discovered', 'Issues',
+    'Record type', 'URL', 'Requested URL', 'Status', 'Lang', 'Detected lang', 'Language confidence', 'Title', 'Meta description',
+    'Canonical', 'Robots', 'X-Robots-Tag', 'Redirect hops', 'Incoming internal links', 'Outgoing internal links', 'Internal links to redirects',
+    'In sitemap', 'H1 count', 'H1 text', 'Word count', 'Image count', 'Images missing alt', 'Hreflang codes', 'Hreflang targets',
+    'JSON-LD types', 'Content hash', 'Error count', 'Warning count', 'Info count', 'Sitemaps parsed', 'Sitemap URLs discovered',
+    'Sitemap coverage %', 'Issues',
   ]];
   const siteIssues = latestResult.siteIssues || [];
   const siteCount = (severity) => siteIssues.filter((issue) => issue.severity === severity).length;
   rows.push([
-    'site', latestResult.origin, latestResult.site?.robotsTxt?.status || '', '', '', '', '', '', '', '', '', '', '', '', '', '', '',
+    'site', latestResult.origin, '', latestResult.site?.robotsTxt?.status || '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '',
     siteCount('error'), siteCount('warning'), siteCount('info'), (latestResult.site?.sitemaps || []).length, latestResult.site?.sitemapUrlsDiscovered || 0,
+    latestResult.site?.crawlCoverage?.percent ?? '',
     siteIssues.map((issue) => issue.severity + ': ' + issue.message).join(' | '),
   ]);
   for (const page of latestResult.pages) {
     const count = (severity) => page.issues.filter((issue) => issue.severity === severity).length;
     rows.push([
-      'page', page.url, page.status, page.lang || '', page.title, page.description, page.canonical || '', page.robots || '', page.xRobotsTag || '',
+      'page', page.url, page.requestedUrl || page.url, page.status, page.lang || '', page.detectedLang || '', page.languageConfidence ?? '',
+      page.title, page.description, page.canonical || '', page.robots || '', page.xRobotsTag || '', (page.redirectChain || []).length,
+      page.internalLinks?.incoming ?? '', page.internalLinks?.outgoing ?? '', page.internalLinks?.redirecting ?? '', page.inSitemap ? 'yes' : 'no',
       page.headings?.h1Count ?? '', (page.headings?.h1 || []).join(' | '), page.wordCount ?? '', page.images?.total ?? '', page.images?.missingAlt ?? '',
       page.hreflangs.map((entry) => entry.lang).join(' | '), page.hreflangs.map((entry) => entry.lang + ' => ' + entry.href).join(' | '),
-      (page.structuredData?.types || []).join(' | '), count('error'), count('warning'), count('info'), '', '',
+      (page.structuredData?.types || []).join(' | '), page.contentHash || '', count('error'), count('warning'), count('info'), '', '', '',
       page.issues.map((issue) => issue.severity + ': ' + issue.message).join(' | '),
     ]);
   }
