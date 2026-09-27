@@ -1,11 +1,9 @@
 import express from 'express';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { auditSite } from './audit.js';
 
 const app = express();
-const port = Number(process.env.PORT || 3000);
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const port: number | string = process.env.PORT ? (Number(process.env.PORT) || process.env.PORT) : 3000;
 const publicDir = path.resolve(__dirname, '../public');
 
 app.disable('x-powered-by');
@@ -31,5 +29,5 @@ app.post('/api/audit', async (req, res) => {
 });
 
 app.listen(port, () => {
-  console.log(`Multilingual SEO Audit running on http://localhost:${port}`);
+  console.log(`Multilingual SEO Audit started on ${port}`);
 });
