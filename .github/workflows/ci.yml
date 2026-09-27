@@ -1,4 +1,4 @@
-name: CI
+name: CI and release
 
 on:
   push:
@@ -16,3 +16,16 @@ jobs:
       - run: npm install --no-audit --no-fund
       - run: npm test
       - run: npm run build
+
+  promote:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Promote tested commit to production
+        run: git push origin HEAD:production --force
