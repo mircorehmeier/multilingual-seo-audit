@@ -8,7 +8,7 @@ It crawls a same-origin website and reports concrete technical issues instead of
 
 ## What it checks
 
-- `hreflang` extraction
+- `hreflang` extraction from HTML, XML sitemaps and HTTP `Link` headers
 - self-referencing hreflang
 - reciprocal hreflang between crawled pages
 - hreflang target status, indexability and canonical consistency
@@ -18,9 +18,9 @@ It crawls a same-origin website and reports concrete technical issues instead of
 - missing and duplicate titles
 - missing and duplicate meta descriptions
 - title/meta display-length heuristics with deliberately conservative, lower-noise severity rules
-- Open Graph metadata
-- Twitter/X card metadata
-- JSON-LD validity and discovered schema types
+- Open Graph metadata plus image status/content-type/dimension checks
+- Twitter/X card metadata plus image status/content-type/dimension checks
+- JSON-LD syntax parsing, discovered schema types and cautious semantic checks for common rich-result structures
 - robots.txt discovery plus Googlebot Allow/Disallow evaluation
 - XML sitemap discovery including sitemap hreflang
 - meta robots and X-Robots-Tag noindex reporting
@@ -28,16 +28,17 @@ It crawls a same-origin website and reports concrete technical issues instead of
 - H1 structure, visible-word heuristic and missing image alt attributes
 - conservative visible-content language detection vs. `<html lang>`
 - exact main-body duplicate-content groups
-- broken internal links when their targets are included in the crawl
+- broken internal links for crawled targets plus up to 50 additional internal targets outside the page crawl quota
 - internal links that unnecessarily pass through redirects
 - redirect chains and temporary redirects
 - same-host mixed-scheme/port links
 - sitemap crawl coverage and orphan-page candidates when coverage is complete
+- crawl depth plus contextual incoming/outgoing internal-link diagnostics
 - sitemap URLs that redirect, are noindex, or canonicalize elsewhere
 - canonical target status/indexability checks
 - HTTP/fetch failures
 - CSV and JSON exports
-- self-describing CSV exports with audit timestamp, engine version, social metadata, heading counts and JSON-LD diagnostics
+- self-describing CSV exports with audit timestamp, engine version, robots access, hreflang source, crawl depth, social-image diagnostics, heading counts and JSON-LD diagnostics
 
 ## Tech stack
 
@@ -164,17 +165,16 @@ Composer + Laravel deployment
 ## Current limitations
 
 - raw server-returned HTML only; JavaScript rendering is not included
-- hreflang in XML sitemaps and HTTP `Link` headers is not yet parsed
 - content-language detection is intentionally conservative and currently covers EN, DE, ES, PT, FR, IT and NL
-- reciprocal hreflang and link-target checks cover URLs present in the current crawl
+- independent internal-link target checks are capped at 50 URLs beyond the normal page crawl quota
+- social-image inspection is capped at 30 unique image URLs and only reports dimensions when they can be determined safely from the fetched response
 - sitemap discovery is capped at 8 sitemap files and 1,000 discovered URLs per audit
-- structured-data checks validate JSON and discover types, but do not yet validate every rich-result requirement
+- structured-data semantic checks are deliberately partial and do not replace Google's Rich Results Test
 
 ## Roadmap
 
 ### V1.1
 
-- hreflang extraction from XML sitemaps and HTTP `Link` headers
 - broader automated tests for ISO language/region edge cases
 - shareable audit reports
 
