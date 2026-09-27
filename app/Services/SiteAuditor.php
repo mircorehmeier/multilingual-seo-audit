@@ -12,7 +12,7 @@ use Throwable;
 
 class SiteAuditor
 {
-    private const USER_AGENT = 'MultilingualSEOAudit/0.3 (+https://github.com/mircorehmeier/multilingual-seo-audit)';
+    private const USER_AGENT = 'MultilingualSEOAudit/0.4 (+https://github.com/mircorehmeier/multilingual-seo-audit)';
     private const CONCURRENCY = 6;
     private const TIMEOUT = 8;
     private const RESOURCE_TIMEOUT = 5;
@@ -47,6 +47,8 @@ class SiteAuditor
         $queued = [$this->urlKey($startUrl) => true];
         $visited = [];
         $seenFinal = [];
+        $redirectMap = [];
+        $redirectedRequests = [];
         $pages = [];
 
         foreach ($sitemapSeedUrls as $seedUrl) {
@@ -112,10 +114,25 @@ class SiteAuditor
                 }
 
                 try {
-                    [$response, $finalUrl] = $this->followRedirects($requestedUrl, $response);
+                    [$response, $finalUrl, $redirectChain] = $this->followRedirects($requestedUrl, $response);
                 } catch (Throwable $exception) {
                     $pages[] = $this->failedPage($requestedUrl, $exception->getMessage());
                     continue;
+                }
+
+                if ($redirectChain !== []) {
+                    $redirectedRequests[$this->urlKey($requestedUrl)] = [
+                        'requestedUrl' => $requestedUrl,
+                        'finalUrl' => $finalUrl,
+                        'chain' => $redirectChain,
+                    ];
+
+                    foreach ($redirectChain as $hop) {
+                        $redirectMap[$this->urlKey($hop['from'])] = [
+                            'finalUrl' => $finalUrl,
+                            'chain' => $redirectChain,
+                        ];
+                    }
                 }
 
                 $finalKey = $this->urlKey($finalUrl);
@@ -150,6 +167,28 @@ class SiteAuditor
                     $contentType,
                     $body,
                 );
+
+                $page['requestedUrl'] = $requestedUrl;
+                $page['redirectChain'] = $redirectChain;
+
+                if (count($redirectChain) > 1) {
+                    $this->issue(
+                        $page,
+                        'redirect_chain',
+                        'warning',
+                        'Entry URL follows '.count($redirectChain).' redirects before reaching '.$finalUrl.'.',
+                    );
+                } elseif ($redirectChain !== []) {
+                    $temporary = in_array($redirectChain[0]['status'], [302, 303, 307], true);
+                    if ($temporary) {
+                        $this->issue(
+                            $page,
+                            'temporary_redirect',
+                            'info',
+                            'Entry URL uses HTTP '.$redirectChain[0]['status'].' before reaching '.$finalUrl.'.',
+                        );
+                    }
+                }
 
                 $xRobotsTag = trim($response->header('X-Robots-Tag'));
                 $page['xRobotsTag'] = $xRobotsTag !== '' ? $xRobotsTag : null;
@@ -197,7 +236,14 @@ class SiteAuditor
             }
         }
 
-        $this->addCrossPageChecks($pages, $crawlOrigin);
+        $crossPage = $this->addCrossPageChecks(
+            $pages,
+            $crawlOrigin,
+            $redirectMap,
+            $sitemapSeedUrls,
+        );
+
+        $site['issues'] = array_merge($site['issues'], $crossPage['siteIssues']);
 
         $counts = ['error' => 0, 'warning' => 0, 'info' => 0];
         $languages = [];
@@ -240,6 +286,8 @@ class SiteAuditor
                 'robotsTxt' => $site['robotsTxt'],
                 'sitemaps' => $site['sitemaps'],
                 'sitemapUrlsDiscovered' => $site['sitemapUrlsDiscovered'],
+                'crawlCoverage' => $crossPage['crawlCoverage'],
+                'redirects' => array_values($redirectedRequests),
             ],
             'siteIssues' => $site['issues'],
             'pages' => $pages,
@@ -253,6 +301,15 @@ class SiteAuditor
                 'noindexPages' => $noindexPages,
                 'sitemapUrls' => $site['sitemapUrlsDiscovered'],
                 'siteIssues' => count($site['issues']),
+                'redirects' => count($redirectedRequests),
+                'redirectChains' => count(array_filter(
+                    $redirectedRequests,
+                    fn (array $entry) => count($entry['chain']) > 1,
+                )),
+                'orphanCandidates' => $crossPage['orphanCandidates'],
+                'duplicateContentGroups' => $crossPage['duplicateContentGroups'],
+                'internalLinksToRedirects' => $crossPage['internalLinksToRedirects'],
+                'mixedSchemeLinks' => $crossPage['mixedSchemeLinks'],
             ],
         ];
     }
@@ -486,16 +543,17 @@ class SiteAuditor
         int $timeout = self::TIMEOUT,
     ): array {
         $currentUrl = $url;
+        $chain = [];
 
         for ($hop = 0; $hop < 5; $hop++) {
             if (! in_array($response->status(), [301, 302, 303, 307, 308], true)) {
-                return [$response, $currentUrl];
+                return [$response, $currentUrl, $chain];
             }
 
             $location = trim($response->header('Location'));
 
             if ($location === '') {
-                return [$response, $currentUrl];
+                return [$response, $currentUrl, $chain];
             }
 
             $resolved = $this->urls->resolve($currentUrl, $location);
@@ -504,7 +562,13 @@ class SiteAuditor
                 throw new \RuntimeException('Redirect target is invalid.');
             }
 
-            $currentUrl = $this->urls->assertPublic($resolved);
+            $targetUrl = $this->urls->assertPublic($resolved);
+            $chain[] = [
+                'from' => $currentUrl,
+                'status' => $response->status(),
+                'to' => $targetUrl,
+            ];
+            $currentUrl = $targetUrl;
 
             $response = Http::withHeaders([
                     'User-Agent' => self::USER_AGENT,
@@ -519,17 +583,37 @@ class SiteAuditor
         throw new \RuntimeException('Too many redirects.');
     }
 
-    private function addCrossPageChecks(array &$pages, string $crawlOrigin): void
-    {
+    private function addCrossPageChecks(
+        array &$pages,
+        string $crawlOrigin,
+        array $redirectMap,
+        array $sitemapUrls,
+    ): array {
         $byUrl = [];
         $titles = [];
         $descriptions = [];
+        $contentHashes = [];
+        $incoming = [];
+        $siteIssues = [];
+        $internalLinksToRedirects = 0;
+        $mixedSchemeLinks = 0;
+        $duplicateContentGroups = 0;
+        $orphanCandidates = 0;
 
-        foreach ($pages as $index => $page) {
+        foreach ($pages as $index => &$page) {
+            $page['internalLinks'] = [
+                'incoming' => 0,
+                'outgoing' => 0,
+                'redirecting' => 0,
+            ];
+            $page['inSitemap'] = false;
+
             try {
-                $byUrl[$this->urlKey($page['url'])] = $index;
+                $key = $this->urlKey($page['url']);
+                $byUrl[$key] = $index;
+                $incoming[$key] = 0;
             } catch (Throwable) {
-                // Keep the rest of the audit useful even if one URL is malformed.
+                continue;
             }
 
             if ($page['title'] !== '') {
@@ -539,7 +623,17 @@ class SiteAuditor
             if ($page['description'] !== '') {
                 $descriptions[mb_strtolower(trim($page['description']))][] = $index;
             }
+
+            if (
+                ! empty($page['contentHash'])
+                && $page['status'] >= 200
+                && $page['status'] < 300
+                && ! $this->pageIsNoindex($page)
+            ) {
+                $contentHashes[$page['contentHash']][] = $index;
+            }
         }
+        unset($page);
 
         foreach ($titles as $indexes) {
             if (count($indexes) <= 1) {
@@ -577,6 +671,130 @@ class SiteAuditor
             }
         }
 
+        foreach ($contentHashes as $indexes) {
+            if (count($indexes) <= 1) {
+                continue;
+            }
+
+            $duplicateContentGroups++;
+            $multilingual = $this->indexesSpanLanguages($pages, $indexes);
+            $canonicalized = $this->indexesShareCanonicalTarget($pages, $indexes);
+
+            foreach ($indexes as $index) {
+                $this->issue(
+                    $pages[$index],
+                    $multilingual ? 'content_duplicate_multilingual' : 'content_duplicate',
+                    $canonicalized ? 'info' : 'warning',
+                    $multilingual
+                        ? 'Exact main-content duplicate detected across '.count($indexes).' declared language variants; this can indicate untranslated body content.'
+                        : 'Exact main-content duplicate detected across '.count($indexes).' audited pages'.($canonicalized ? ' with a shared canonical target.' : '.'),
+                );
+            }
+        }
+
+        foreach ($pages as $index => &$page) {
+            $seenOutgoing = [];
+            $redirectLinks = [];
+            $mixedScheme = [];
+            $broken = [];
+
+            foreach ($page['links'] as $link) {
+                if ($this->urls->sameHost($crawlOrigin, $link) && ! $this->urls->sameOrigin($crawlOrigin, $link)) {
+                    $mixedScheme[$link] = true;
+                }
+
+                if (! $this->urls->sameOrigin($crawlOrigin, $link)) {
+                    continue;
+                }
+
+                try {
+                    $targetKey = $this->urlKey($link);
+                } catch (Throwable) {
+                    continue;
+                }
+
+                $effectiveKey = $targetKey;
+
+                if (isset($redirectMap[$targetKey])) {
+                    $redirectLinks[$targetKey] = $redirectMap[$targetKey];
+
+                    try {
+                        $effectiveKey = $this->urlKey($redirectMap[$targetKey]['finalUrl']);
+                    } catch (Throwable) {
+                        $effectiveKey = $targetKey;
+                    }
+                }
+
+                if (! isset($seenOutgoing[$effectiveKey])) {
+                    $seenOutgoing[$effectiveKey] = true;
+                    $page['internalLinks']['outgoing']++;
+
+                    if (isset($byUrl[$effectiveKey])) {
+                        $incoming[$effectiveKey] = ($incoming[$effectiveKey] ?? 0) + 1;
+                    }
+                }
+
+                if (isset($byUrl[$effectiveKey]) && $pages[$byUrl[$effectiveKey]]['status'] >= 400) {
+                    $broken[$pages[$byUrl[$effectiveKey]]['url']] = true;
+                }
+            }
+
+            if ($redirectLinks !== []) {
+                $page['internalLinks']['redirecting'] = count($redirectLinks);
+                $internalLinksToRedirects += count($redirectLinks);
+                $first = array_key_first($redirectLinks);
+
+                $this->issue(
+                    $page,
+                    'internal_link_to_redirect',
+                    'warning',
+                    count($redirectLinks).' internal link(s) point to redirecting URLs; first: '.$first.' → '.$redirectLinks[$first]['finalUrl'].'. Link directly to the final URL.',
+                );
+
+                $chainLinks = array_filter(
+                    $redirectLinks,
+                    fn (array $entry) => count($entry['chain']) > 1,
+                );
+
+                if ($chainLinks !== []) {
+                    $firstChainUrl = array_key_first($chainLinks);
+                    $this->issue(
+                        $page,
+                        'internal_link_redirect_chain',
+                        'warning',
+                        count($chainLinks).' internal link(s) enter a redirect chain; first: '.$firstChainUrl.' follows '.count($chainLinks[$firstChainUrl]['chain']).' redirects.',
+                    );
+                }
+            }
+
+            if ($mixedScheme !== []) {
+                $mixedSchemeLinks += count($mixedScheme);
+                $first = array_key_first($mixedScheme);
+
+                $this->issue(
+                    $page,
+                    'mixed_scheme_internal_link',
+                    'warning',
+                    count($mixedScheme).' same-host link(s) use a different scheme or port; first: '.$first.'.',
+                );
+            }
+
+            if ($broken !== []) {
+                $first = array_key_first($broken);
+                $this->issue(
+                    $page,
+                    'broken_internal_link',
+                    'error',
+                    count($broken).' crawled internal link(s) point to HTTP errors; first: '.$first.'.',
+                );
+            }
+        }
+        unset($page);
+
+        foreach ($byUrl as $key => $index) {
+            $pages[$index]['internalLinks']['incoming'] = $incoming[$key] ?? 0;
+        }
+
         foreach ($pages as $index => $page) {
             try {
                 $sourceUrl = $this->urlKey($page['url']);
@@ -605,37 +823,26 @@ class SiteAuditor
                                 'Canonical target is marked noindex: '.$target['url'].'.',
                             );
                         }
+
+                        if ($target['canonical'] !== null) {
+                            try {
+                                $targetCanonical = $this->urlKey($target['canonical']);
+                                if ($targetCanonical !== $canonicalUrl) {
+                                    $this->issue(
+                                        $pages[$index],
+                                        'canonical_chain',
+                                        'warning',
+                                        'Canonical target itself canonicalizes elsewhere: '.$target['canonical'].'.',
+                                    );
+                                }
+                            } catch (Throwable) {
+                                // Target canonical validity is already checked on that page.
+                            }
+                        }
                     }
                 } catch (Throwable) {
                     // Canonical validity is already checked at page level.
                 }
-            }
-
-            $broken = [];
-            foreach ($page['links'] as $link) {
-                if (! $this->urls->sameOrigin($crawlOrigin, $link)) {
-                    continue;
-                }
-
-                try {
-                    $targetKey = $this->urlKey($link);
-                } catch (Throwable) {
-                    continue;
-                }
-
-                if (isset($byUrl[$targetKey]) && $pages[$byUrl[$targetKey]]['status'] >= 400) {
-                    $broken[] = $pages[$byUrl[$targetKey]]['url'];
-                }
-            }
-
-            if ($broken !== []) {
-                $broken = array_values(array_unique($broken));
-                $this->issue(
-                    $pages[$index],
-                    'broken_internal_link',
-                    'error',
-                    count($broken).' crawled internal link(s) point to HTTP errors; first: '.$broken[0].'.',
-                );
             }
 
             foreach ($page['hreflangs'] as $alternate) {
@@ -720,6 +927,164 @@ class SiteAuditor
                 }
             }
         }
+
+        $sitemapKeys = [];
+        $sitemapAudited = 0;
+        $sitemapRedirects = 0;
+        $sitemapTargets = [];
+
+        foreach ($sitemapUrls as $sitemapUrl) {
+            try {
+                $key = $this->urlKey($sitemapUrl);
+            } catch (Throwable) {
+                continue;
+            }
+
+            if (isset($sitemapKeys[$key])) {
+                continue;
+            }
+
+            $sitemapKeys[$key] = true;
+            $effectiveKey = $key;
+
+            if (isset($redirectMap[$key])) {
+                $sitemapRedirects++;
+                try {
+                    $effectiveKey = $this->urlKey($redirectMap[$key]['finalUrl']);
+                } catch (Throwable) {
+                    $effectiveKey = $key;
+                }
+            }
+
+            if (! isset($byUrl[$effectiveKey])) {
+                continue;
+            }
+
+            $sitemapAudited++;
+            $sitemapTargets[$effectiveKey] = true;
+            $pageIndex = $byUrl[$effectiveKey];
+            $pages[$pageIndex]['inSitemap'] = true;
+
+            if (isset($redirectMap[$key])) {
+                $this->issue(
+                    $pages[$pageIndex],
+                    'sitemap_url_redirect',
+                    'warning',
+                    'Sitemap URL redirects: '.$sitemapUrl.' → '.$redirectMap[$key]['finalUrl'].'. Sitemaps should list final canonical URLs.',
+                );
+            }
+
+            if ($this->pageIsNoindex($pages[$pageIndex])) {
+                $this->issue(
+                    $pages[$pageIndex],
+                    'sitemap_noindex',
+                    'warning',
+                    'Sitemap-listed page is marked noindex.',
+                );
+            }
+
+            if ($pages[$pageIndex]['canonical'] !== null) {
+                try {
+                    if ($this->urlKey($pages[$pageIndex]['canonical']) !== $effectiveKey) {
+                        $this->issue(
+                            $pages[$pageIndex],
+                            'sitemap_noncanonical',
+                            'warning',
+                            'Sitemap-listed URL canonicalizes to '.$pages[$pageIndex]['canonical'].'.',
+                        );
+                    }
+                } catch (Throwable) {
+                    // Canonical validity is already reported on the page.
+                }
+            }
+        }
+
+        $sitemapTotal = count($sitemapKeys);
+        $coverageComplete = $sitemapTotal > 0 && $sitemapAudited === $sitemapTotal;
+        $coveragePercent = $sitemapTotal > 0
+            ? round(($sitemapAudited / $sitemapTotal) * 100, 1)
+            : null;
+
+        if ($sitemapTotal > 0 && ! $coverageComplete) {
+            $siteIssues[] = [
+                'code' => 'crawl_coverage_partial',
+                'severity' => 'info',
+                'message' => 'Audited '.$sitemapAudited.' of '.$sitemapTotal.' sitemap URLs ('.$coveragePercent.'%). Orphan-page conclusions are disabled until coverage is complete.',
+            ];
+        }
+
+        if ($sitemapRedirects > 0) {
+            $siteIssues[] = [
+                'code' => 'sitemap_redirects',
+                'severity' => 'warning',
+                'message' => $sitemapRedirects.' sitemap URL(s) redirect before reaching their final page.',
+            ];
+        }
+
+        if ($coverageComplete && count($pages) > 1) {
+            foreach (array_keys($sitemapTargets) as $key) {
+                if (! isset($byUrl[$key])) {
+                    continue;
+                }
+
+                $pageIndex = $byUrl[$key];
+                if ($pageIndex === 0 || $this->pageIsNoindex($pages[$pageIndex])) {
+                    continue;
+                }
+
+                if (($pages[$pageIndex]['internalLinks']['incoming'] ?? 0) === 0) {
+                    $orphanCandidates++;
+                    $this->issue(
+                        $pages[$pageIndex],
+                        'orphan_candidate',
+                        'warning',
+                        'Sitemap-listed page has no internal anchor links from other audited pages.',
+                    );
+                }
+            }
+        }
+
+        return [
+            'siteIssues' => $siteIssues,
+            'crawlCoverage' => [
+                'sitemapUrls' => $sitemapTotal,
+                'audited' => $sitemapAudited,
+                'percent' => $coveragePercent,
+                'complete' => $coverageComplete,
+            ],
+            'orphanCandidates' => $orphanCandidates,
+            'duplicateContentGroups' => $duplicateContentGroups,
+            'internalLinksToRedirects' => $internalLinksToRedirects,
+            'mixedSchemeLinks' => $mixedSchemeLinks,
+        ];
+    }
+
+    private function indexesShareCanonicalTarget(array $pages, array $indexes): bool
+    {
+        $target = null;
+
+        foreach ($indexes as $index) {
+            if (empty($pages[$index]['canonical'])) {
+                return false;
+            }
+
+            try {
+                $canonical = $this->urlKey($pages[$index]['canonical']);
+            } catch (Throwable) {
+                return false;
+            }
+
+            if ($target === null) {
+                $target = $canonical;
+                continue;
+            }
+
+            if ($canonical !== $target) {
+                return false;
+            }
+        }
+
+        return $target !== null;
     }
 
     private function indexesSpanLanguages(array $pages, array $indexes): bool
@@ -768,6 +1133,8 @@ class SiteAuditor
     {
         return [
             'url' => $url,
+            'requestedUrl' => $url,
+            'redirectChain' => [],
             'status' => 0,
             'contentType' => '',
             'title' => '',
@@ -788,6 +1155,9 @@ class SiteAuditor
                 'emptyAlt' => 0,
             ],
             'wordCount' => 0,
+            'detectedLang' => null,
+            'languageConfidence' => 0.0,
+            'contentHash' => null,
             'openGraph' => [
                 'title' => null,
                 'description' => null,

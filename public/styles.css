@@ -34,6 +34,8 @@ button { cursor: pointer; }
 }
 .brand { display: inline-flex; align-items: center; gap: 10px; font-weight: 750; text-decoration: none; }
 .brand-mark { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; background: var(--ink); color: white; }
+.version-badge { padding: 3px 7px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: .68rem; font-weight: 800; letter-spacing: .03em; }
+.pill.detected-lang { border: 1px dashed #b7c6bd; background: #fff; }
 .github-link { font-size: .92rem; color: var(--muted); text-decoration: none; }
 .github-link:hover { color: var(--ink); }
 

@@ -6,13 +6,14 @@
   <title>Multilingual SEO Audit</title>
   <meta name="description" content="Audit hreflang, canonicals, indexability, metadata, sitemaps, links, headings, images and structured data across multilingual websites.">
   <meta name="color-scheme" content="light dark">
-  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/styles.css?v=0.4.0">
 </head>
 <body>
   <header class="site-header">
     <a class="brand" href="/" aria-label="Multilingual SEO Audit home">
       <span class="brand-mark">M</span>
       <span>Multilingual SEO Audit</span>
+      <span class="version-badge">v0.4</span>
     </a>
     <a class="github-link" href="https://github.com/mircorehmeier/multilingual-seo-audit" target="_blank" rel="noreferrer">GitHub ↗</a>
   </header>
@@ -21,7 +22,7 @@
     <section class="hero">
       <p class="eyebrow">Technical SEO · EN / ES / DE and beyond</p>
       <h1>Find multilingual SEO problems before search engines do.</h1>
-      <p class="intro">Crawl a website and inspect hreflang, canonical tags, indexability, metadata, sitemaps, links, headings, images, social cards and JSON-LD — without a black-box SEO score.</p>
+      <p class="intro">Crawl a website and inspect hreflang, canonicals, indexability, redirects, duplicate content, sitemap coverage, orphan candidates, internal links, metadata and structured data — without a black-box SEO score.</p>
 
       <form id="audit-form" class="audit-form">
         <label class="url-field">
@@ -105,8 +106,10 @@
         <article><h3>Metadata</h3><p>Missing and duplicate titles/descriptions with language-aware duplicate handling and low-severity display heuristics.</p></article>
         <article><h3>Canonical</h3><p>Missing, invalid or multiple canonical tags and pages that canonicalize elsewhere.</p></article>
         <article><h3>Social</h3><p>Open Graph and Twitter/X card metadata for cleaner shared previews.</p></article>
-        <article><h3>Sitemaps & links</h3><p>robots.txt sitemap discovery, XML sitemap parsing and broken internal links when their targets are crawled.</p></article>
+        <article><h3>Sitemaps & links</h3><p>robots.txt sitemap discovery, crawl coverage, orphan candidates, broken links and internal links that unnecessarily pass through redirects.</p></article>
         <article><h3>Structured data</h3><p>JSON-LD parsing, invalid blocks and discovered schema types.</p></article>
+        <article><h3>Content quality</h3><p>Exact body-content duplicates, conservative language detection, H1 structure, thin-content heuristics and missing image alt attributes.</p></article>
+        <article><h3>Redirects</h3><p>Redirect chains, temporary redirects, sitemap redirects and same-host links using a different scheme or port.</p></article>
       </div>
     </section>
   </main>
@@ -126,6 +129,6 @@
     </tr>
   </template>
 
-  <script type="module" src="/app.js"></script>
+  <script type="module" src="/app.js?v=0.4.0"></script>
 </body>
 </html>

@@ -19,7 +19,7 @@ class ApplicationTest extends TestCase
             ->assertOk()
             ->assertJson([
                 'ok' => true,
-                'version' => '0.3.0-laravel',
+                'version' => '0.4.0-laravel',
             ]);
     }
 

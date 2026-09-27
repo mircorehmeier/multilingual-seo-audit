@@ -151,4 +151,10 @@ class UrlGuard
     {
         return $this->origin($a) === $this->origin($b);
     }
+
+    public function sameHost(string $a, string $b): bool
+    {
+        return strtolower((string) parse_url($a, PHP_URL_HOST))
+            === strtolower((string) parse_url($b, PHP_URL_HOST));
+    }
 }
