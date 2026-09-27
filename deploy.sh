@@ -7,16 +7,35 @@ cd "$APP_DIR"
 echo "==> multilingual-seo-audit deploy"
 echo "==> Working directory: $(pwd)"
 
-if [ -x /opt/plesk/node/22/bin/npm ]; then
-  export PATH="/opt/plesk/node/22/bin:$PATH"
-elif command -v npm >/dev/null 2>&1; then
-  :
-else
-  echo "ERROR: npm not found. The Plesk Git deployment action is probably running inside a chroot."
-  echo "Set this subscription's SSH access to non-chrooted /bin/bash, then deploy again."
+NODE_BIN=""
+
+# Prefer current supported Plesk Node handlers.
+for VERSION in 24 22 20; do
+  CANDIDATE="/opt/plesk/node/$VERSION/bin"
+  if [ -x "$CANDIDATE/node" ] && [ -x "$CANDIDATE/npm" ]; then
+    NODE_BIN="$CANDIDATE"
+    break
+  fi
+done
+
+# Fallback: use npm already available in PATH.
+if [ -z "$NODE_BIN" ] && command -v npm >/dev/null 2>&1 && command -v node >/dev/null 2>&1; then
+  NODE_BIN=""
+fi
+
+if [ -n "$NODE_BIN" ]; then
+  export PATH="$NODE_BIN:$PATH"
+fi
+
+if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
+  echo "ERROR: No usable Node.js/npm installation was found."
+  echo "Expected a Plesk handler under /opt/plesk/node/24, /22 or /20."
+  echo "Check Domains > seo-audit.rehmeier.es > Node.js and note the configured Node.js version."
   exit 1
 fi
 
+echo "==> Node binary: $(command -v node)"
+echo "==> npm binary: $(command -v npm)"
 echo "==> Node: $(node --version)"
 echo "==> npm: $(npm --version)"
 
