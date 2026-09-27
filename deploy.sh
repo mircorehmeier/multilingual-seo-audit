@@ -4,58 +4,71 @@ set -eu
 APP_DIR="${APP_DIR:-$HOME/seo-audit}"
 cd "$APP_DIR"
 
-echo "==> multilingual-seo-audit deploy"
+echo "==> multilingual-seo-audit Laravel deploy"
 echo "==> Working directory: $(pwd)"
 
-NODE_BIN=""
+PHP_BIN=""
 
-# Prefer current supported Plesk Node handlers.
-for VERSION in 24 22 20; do
-  CANDIDATE="/opt/plesk/node/$VERSION/bin"
-  if [ -x "$CANDIDATE/node" ] && [ -x "$CANDIDATE/npm" ]; then
-    NODE_BIN="$CANDIDATE"
-    break
-  fi
+for VERSION in 8.5 8.4 8.3; do
+    CANDIDATE="/opt/plesk/php/$VERSION/bin/php"
+    if [ -x "$CANDIDATE" ]; then
+        PHP_BIN="$CANDIDATE"
+        break
+    fi
 done
 
-# Fallback: use npm already available in PATH.
-if [ -z "$NODE_BIN" ] && command -v npm >/dev/null 2>&1 && command -v node >/dev/null 2>&1; then
-  NODE_BIN=""
+if [ -z "$PHP_BIN" ] && command -v php >/dev/null 2>&1; then
+    PHP_BIN="$(command -v php)"
 fi
 
-if [ -n "$NODE_BIN" ]; then
-  export PATH="$NODE_BIN:$PATH"
+if [ -z "$PHP_BIN" ]; then
+    echo "ERROR: PHP 8.3+ was not found."
+    exit 1
 fi
 
-if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
-  echo "ERROR: No usable Node.js/npm installation was found."
-  echo "Expected a Plesk handler under /opt/plesk/node/24, /22 or /20."
-  echo "Check Domains > seo-audit.rehmeier.es > Node.js and note the configured Node.js version."
-  exit 1
+echo "==> PHP: $("$PHP_BIN" -r 'echo PHP_VERSION;')"
+"$PHP_BIN" -r 'exit(version_compare(PHP_VERSION, "8.3.0", ">=") ? 0 : 1);' || {
+    echo "ERROR: Laravel 13 requires PHP 8.3 or newer."
+    exit 1
+}
+
+COMPOSER_PHAR=""
+for CANDIDATE in     /usr/lib/plesk-9.0/composer.phar     /usr/lib64/plesk-9.0/composer.phar     /usr/local/psa/var/modules/composer/composer.phar
+do
+    if [ -f "$CANDIDATE" ]; then
+        COMPOSER_PHAR="$CANDIDATE"
+        break
+    fi
+done
+
+if [ -z "$COMPOSER_PHAR" ]; then
+    echo "ERROR: Plesk Composer could not be found."
+    exit 1
 fi
 
-echo "==> Node binary: $(command -v node)"
-echo "==> npm binary: $(command -v npm)"
-echo "==> Node: $(node --version)"
-echo "==> npm: $(npm --version)"
+if [ ! -f .env ]; then
+    cp .env.example .env
+    echo "==> Created .env from .env.example"
+fi
 
-echo "==> Installing dependencies"
-npm install --include=dev --no-audit --no-fund
+mkdir -p storage/framework/cache storage/framework/sessions storage/framework/views storage/logs bootstrap/cache
+chmod -R ug+rw storage bootstrap/cache || true
 
-echo "==> Building TypeScript"
-npm run build
+echo "==> Installing Composer dependencies"
+"$PHP_BIN" -d memory_limit=1024M "$COMPOSER_PHAR" install     --no-dev     --prefer-dist     --no-interaction     --no-progress     --optimize-autoloader
 
-echo "==> Verifying deployment layout"
-test -f app.js || { echo "ERROR: app.js missing from application root"; exit 1; }
-test -f dist/server.js || { echo "ERROR: dist/server.js missing after build"; exit 1; }
-test -f public/index.html || { echo "ERROR: public/index.html missing"; exit 1; }
-test -f public/app.js || { echo "ERROR: public/app.js missing"; exit 1; }
-test -f public/styles.css || { echo "ERROR: public/styles.css missing"; exit 1; }
+if ! grep -Eq '^APP_KEY=base64:.+' .env; then
+    echo "==> Generating Laravel application key"
+    "$PHP_BIN" artisan key:generate --force
+fi
 
-printf 'ok\n' > public/deploy-status.txt
+echo "==> Clearing old caches"
+"$PHP_BIN" artisan optimize:clear
 
-echo "==> Restarting Node.js application"
-mkdir -p tmp
-touch tmp/restart.txt
+echo "==> Caching production configuration and views"
+"$PHP_BIN" artisan config:cache
+"$PHP_BIN" artisan view:cache
 
-echo "==> Deploy complete"
+printf 'ok - laravel\n' > public/deploy-status.txt
+
+echo "==> Laravel deploy complete"
