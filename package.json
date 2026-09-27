@@ -2,6 +2,7 @@
   "name": "multilingual-seo-audit",
   "version": "0.1.0",
   "description": "A lightweight multilingual technical SEO auditor for canonical, hreflang, metadata, social cards and structured data.",
+  "type": "module",
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "start": "node app.js",
@@ -10,7 +11,7 @@
     "test:watch": "vitest"
   },
   "engines": {
-    "node": "24.x"
+    "node": ">=22"
   },
   "keywords": [
     "seo",
