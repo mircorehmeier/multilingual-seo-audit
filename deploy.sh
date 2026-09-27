@@ -74,6 +74,6 @@ if command -v git >/dev/null 2>&1 && git rev-parse --is-inside-work-tree >/dev/n
     COMMIT_SHA="$(git rev-parse --short HEAD)"
 fi
 
-printf 'ok - laravel 0.4.0\ncommit: %s\n' "$COMMIT_SHA" > public/deploy-status.txt
+printf 'ok - laravel 0.4.1\ncommit: %s\n' "$COMMIT_SHA" > public/deploy-status.txt
 
 echo "==> Laravel deploy complete"
