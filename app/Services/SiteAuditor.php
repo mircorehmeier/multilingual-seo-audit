@@ -12,7 +12,7 @@ use Throwable;
 
 class SiteAuditor
 {
-    private const USER_AGENT = 'MultilingualSEOAudit/0.4 (+https://github.com/mircorehmeier/multilingual-seo-audit)';
+    private const USER_AGENT_PREFIX = 'MultilingualSEOAudit/';
     private const CONCURRENCY = 6;
     private const TIMEOUT = 8;
     private const RESOURCE_TIMEOUT = 5;
@@ -86,7 +86,7 @@ class SiteAuditor
                 fn (Pool $pool) => array_map(
                     fn (string $url) => $pool
                         ->withHeaders([
-                            'User-Agent' => self::USER_AGENT,
+                            'User-Agent' => $this->userAgent(),
                             'Accept' => 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.2',
                         ])
                         ->withOptions(['allow_redirects' => false])
@@ -278,6 +278,7 @@ class SiteAuditor
         sort($hreflangList);
 
         return [
+            'version' => config('audit.version'),
             'startUrl' => $startUrl,
             'origin' => $crawlOrigin,
             'auditedAt' => now()->toIso8601String(),
@@ -525,7 +526,7 @@ class SiteAuditor
     {
         $url = $this->urls->assertPublic($url);
         $response = Http::withHeaders([
-                'User-Agent' => self::USER_AGENT,
+                'User-Agent' => $this->userAgent(),
                 'Accept' => $accept,
             ])
             ->withOptions(['allow_redirects' => false])
@@ -571,7 +572,7 @@ class SiteAuditor
             $currentUrl = $targetUrl;
 
             $response = Http::withHeaders([
-                    'User-Agent' => self::USER_AGENT,
+                    'User-Agent' => $this->userAgent(),
                     'Accept' => $accept,
                 ])
                 ->withOptions(['allow_redirects' => false])
@@ -1122,6 +1123,11 @@ class SiteAuditor
         $tokens = preg_split('/[\s,;:]+/', strtolower($value), -1, PREG_SPLIT_NO_EMPTY) ?: [];
 
         return in_array(strtolower($needle), $tokens, true);
+    }
+
+    private function userAgent(): string
+    {
+        return self::USER_AGENT_PREFIX.config('audit.version').' (+https://github.com/mircorehmeier/multilingual-seo-audit)';
     }
 
     private function urlKey(string $url): string
