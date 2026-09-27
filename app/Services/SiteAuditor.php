@@ -12,7 +12,7 @@ use Throwable;
 
 class SiteAuditor
 {
-    private const USER_AGENT = 'MultilingualSEOAudit/0.3 (+https://github.com/mircorehmeier/multilingual-seo-audit)';
+    private const USER_AGENT = 'MultilingualSEOAudit/0.4 (+https://github.com/mircorehmeier/multilingual-seo-audit)';
     private const CONCURRENCY = 6;
     private const TIMEOUT = 8;
     private const RESOURCE_TIMEOUT = 5;
@@ -47,6 +47,8 @@ class SiteAuditor
         $queued = [$this->urlKey($startUrl) => true];
         $visited = [];
         $seenFinal = [];
+        $redirectMap = [];
+        $redirectedRequests = [];
         $pages = [];
 
         foreach ($sitemapSeedUrls as $seedUrl) {
@@ -112,10 +114,25 @@ class SiteAuditor
                 }
 
                 try {
-                    [$response, $finalUrl] = $this->followRedirects($requestedUrl, $response);
+                    [$response, $finalUrl, $redirectChain] = $this->followRedirects($requestedUrl, $response);
                 } catch (Throwable $exception) {
                     $pages[] = $this->failedPage($requestedUrl, $exception->getMessage());
                     continue;
+                }
+
+                if ($redirectChain !== []) {
+                    $redirectedRequests[$this->urlKey($requestedUrl)] = [
+                        'requestedUrl' => $requestedUrl,
+                        'finalUrl' => $finalUrl,
+                        'chain' => $redirectChain,
+                    ];
+
+                    foreach ($redirectChain as $hop) {
+                        $redirectMap[$this->urlKey($hop['from'])] = [
+                            'finalUrl' => $finalUrl,
+                            'chain' => $redirectChain,
+                        ];
+                    }
                 }
 
                 $finalKey = $this->urlKey($finalUrl);
@@ -150,6 +167,28 @@ class SiteAuditor
                     $contentType,
                     $body,
                 );
+
+                $page['requestedUrl'] = $requestedUrl;
+                $page['redirectChain'] = $redirectChain;
+
+                if (count($redirectChain) > 1) {
+                    $this->issue(
+                        $page,
+                        'redirect_chain',
+                        'warning',
+                        'Entry URL follows '.count($redirectChain).' redirects before reaching '.$finalUrl.'.',
+                    );
+                } elseif ($redirectChain !== []) {
+                    $temporary = in_array($redirectChain[0]['status'], [302, 303, 307], true);
+                    if ($temporary) {
+                        $this->issue(
+                            $page,
+                            'temporary_redirect',
+                            'info',
+                            'Entry URL uses HTTP '.$redirectChain[0]['status'].' before reaching '.$finalUrl.'.',
+                        );
+                    }
+                }
 
                 $xRobotsTag = trim($response->header('X-Robots-Tag'));
                 $page['xRobotsTag'] = $xRobotsTag !== '' ? $xRobotsTag : null;
@@ -197,7 +236,14 @@ class SiteAuditor
             }
         }
 
-        $this->addCrossPageChecks($pages, $crawlOrigin);
+        $crossPage = $this->addCrossPageChecks(
+            $pages,
+            $crawlOrigin,
+            $redirectMap,
+            $sitemapSeedUrls,
+        );
+
+        $site['issues'] = array_merge($site['issues'], $crossPage['siteIssues']);
 
         $counts = ['error' => 0, 'warning' => 0, 'info' => 0];
         $languages = [];
@@ -240,6 +286,7 @@ class SiteAuditor
                 'robotsTxt' => $site['robotsTxt'],
                 'sitemaps' => $site['sitemaps'],
                 'sitemapUrlsDiscovered' => $site['sitemapUrlsDiscovered'],
+                'crawlCoverage' => $crossPage['crawlCoverage'],
             ],
             'siteIssues' => $site['issues'],
             'pages' => $pages,
@@ -253,6 +300,15 @@ class SiteAuditor
                 'noindexPages' => $noindexPages,
                 'sitemapUrls' => $site['sitemapUrlsDiscovered'],
                 'siteIssues' => count($site['issues']),
+                'redirects' => count($redirectedRequests),
+                'redirectChains' => count(array_filter(
+                    $redirectedRequests,
+                    fn (array $entry) => count($entry['chain']) > 1,
+                )),
+                'orphanCandidates' => $crossPage['orphanCandidates'],
+                'duplicateContentGroups' => $crossPage['duplicateContentGroups'],
+                'internalLinksToRedirects' => $crossPage['internalLinksToRedirects'],
+                'mixedSchemeLinks' => $crossPage['mixedSchemeLinks'],
             ],
         ];
     }
