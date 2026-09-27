@@ -16,6 +16,23 @@ class UrlGuardTest extends TestCase
         $this->assertSame('https://example.com/page?id=7', $url);
     }
 
+    public function test_query_parameters_are_sorted_for_stable_url_identity(): void
+    {
+        $guard = new UrlGuard();
+
+        $this->assertSame(
+            $guard->normalize('https://example.com/page?b=2&a=1'),
+            $guard->normalize('https://example.com/page?a=1&b=2'),
+        );
+    }
+
+    public function test_origin_without_path_normalizes_to_root_slash(): void
+    {
+        $guard = new UrlGuard();
+
+        $this->assertSame('https://example.com/', $guard->normalize('https://example.com'));
+    }
+
     public function test_relative_urls_are_resolved(): void
     {
         $guard = new UrlGuard();
