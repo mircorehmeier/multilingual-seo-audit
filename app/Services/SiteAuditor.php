@@ -165,8 +165,10 @@ class SiteAuditor
                     continue;
                 }
 
+                $requestedKey = $this->urlKey($requestedUrl);
                 $externalHreflangs = array_merge(
                     $this->httpHreflangs($finalUrl, $response->header('Link')),
+                    $sitemapHreflangs[$requestedKey] ?? [],
                     $sitemapHreflangs[$finalKey] ?? [],
                 );
 
