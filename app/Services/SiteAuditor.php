@@ -1117,6 +1117,8 @@ class SiteAuditor
     {
         return [
             'url' => $url,
+            'requestedUrl' => $url,
+            'redirectChain' => [],
             'status' => 0,
             'contentType' => '',
             'title' => '',
@@ -1137,6 +1139,9 @@ class SiteAuditor
                 'emptyAlt' => 0,
             ],
             'wordCount' => 0,
+            'detectedLang' => null,
+            'languageConfidence' => 0.0,
+            'contentHash' => null,
             'openGraph' => [
                 'title' => null,
                 'description' => null,
