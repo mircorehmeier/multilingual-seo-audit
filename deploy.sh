@@ -46,7 +46,7 @@ echo "==> Building TypeScript"
 npm run build
 
 echo "==> Verifying deployment layout"
-test -f app.js || { echo "ERROR: app.js missing from application root"; exit 1; }
+test -f _passenger.cjs || { echo "ERROR: _passenger.cjs missing from application root"; exit 1; }
 test -f dist/server.js || { echo "ERROR: dist/server.js missing after build"; exit 1; }
 test -f public/index.html || { echo "ERROR: public/index.html missing"; exit 1; }
 test -f public/app.js || { echo "ERROR: public/app.js missing"; exit 1; }
