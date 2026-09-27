@@ -90,6 +90,37 @@ class HtmlAuditor
             }
         }
 
+        $h1Nodes = $xpath->query('//h1');
+        $h1s = [];
+        if ($h1Nodes instanceof DOMNodeList) {
+            foreach ($h1Nodes as $node) {
+                $text = $this->nodeText($node);
+                if ($text !== '') {
+                    $h1s[] = $text;
+                }
+            }
+        }
+
+        $h2Nodes = $xpath->query('//h2');
+        $imageNodes = $xpath->query('//img');
+        $images = ['total' => 0, 'missingAlt' => 0, 'emptyAlt' => 0];
+
+        if ($imageNodes instanceof DOMNodeList) {
+            $images['total'] = $imageNodes->length;
+
+            foreach ($imageNodes as $node) {
+                if (! $node instanceof DOMElement) {
+                    continue;
+                }
+
+                if (! $node->hasAttribute('alt')) {
+                    $images['missingAlt']++;
+                } elseif ($this->clean($node->getAttribute('alt')) === '') {
+                    $images['emptyAlt']++;
+                }
+            }
+        }
+
         $structuredData = $this->structuredData($xpath);
 
         $page = [
@@ -101,7 +132,15 @@ class HtmlAuditor
             'canonical' => $canonical,
             'lang' => $lang,
             'robots' => $robots,
+            'xRobotsTag' => null,
             'hreflangs' => $hreflangs,
+            'headings' => [
+                'h1Count' => $h1Nodes instanceof DOMNodeList ? $h1Nodes->length : 0,
+                'h1' => $h1s,
+                'h2Count' => $h2Nodes instanceof DOMNodeList ? $h2Nodes->length : 0,
+            ],
+            'images' => $images,
+            'wordCount' => $this->wordCount($xpath),
             'openGraph' => [
                 'title' => $this->meta($xpath, 'property', 'og:title'),
                 'description' => $this->meta($xpath, 'property', 'og:description'),
@@ -131,9 +170,9 @@ class HtmlAuditor
         if ($titleLength === 0) {
             $this->issue($page, 'title_missing', 'error', 'Missing <title>.');
         } elseif ($titleLength < 30) {
-            $this->issue($page, 'title_short', 'info', "Title is {$titleLength} characters (short display heuristic).");
+            $this->issue($page, 'title_short', 'info', "Title is {$titleLength} characters (display heuristic, not a ranking rule).");
         } elseif ($titleLength > 60) {
-            $this->issue($page, 'title_long', 'warning', "Title is {$titleLength} characters (long display heuristic).");
+            $this->issue($page, 'title_long', 'info', "Title is {$titleLength} characters (display heuristic, not a ranking rule).");
         }
 
         $descriptionLength = mb_strlen($page['description']);
@@ -141,9 +180,9 @@ class HtmlAuditor
         if ($descriptionLength === 0) {
             $this->issue($page, 'description_missing', 'warning', 'Missing meta description.');
         } elseif ($descriptionLength < 70) {
-            $this->issue($page, 'description_short', 'info', "Meta description is {$descriptionLength} characters (short display heuristic).");
+            $this->issue($page, 'description_short', 'info', "Meta description is {$descriptionLength} characters (display heuristic).");
         } elseif ($descriptionLength > 160) {
-            $this->issue($page, 'description_long', 'warning', "Meta description is {$descriptionLength} characters (long display heuristic).");
+            $this->issue($page, 'description_long', 'info', "Meta description is {$descriptionLength} characters (display heuristic).");
         }
 
         if ($canonicalCount === 0) {
@@ -164,6 +203,26 @@ class HtmlAuditor
 
         if ($page['lang'] === null) {
             $this->issue($page, 'html_lang_missing', 'warning', 'Missing html lang attribute.');
+        }
+
+        if ($this->directiveContains($page['robots'], 'noindex')) {
+            $this->issue($page, 'robots_noindex', 'info', 'Meta robots contains noindex; this page is intended not to appear in search results.');
+        }
+
+        if ($page['headings']['h1Count'] === 0) {
+            $this->issue($page, 'h1_missing', 'info', 'No H1 heading found.');
+        } elseif ($page['headings']['h1Count'] > 1) {
+            $count = $page['headings']['h1Count'];
+            $this->issue($page, 'h1_multiple', 'info', "Found {$count} H1 headings; review structure if this was not intentional.");
+        }
+
+        if ($page['images']['missingAlt'] > 0) {
+            $count = $page['images']['missingAlt'];
+            $this->issue($page, 'image_alt_missing', 'warning', "{$count} image(s) are missing an alt attribute.");
+        }
+
+        if ($page['wordCount'] > 0 && $page['wordCount'] < 80) {
+            $this->issue($page, 'content_thin', 'info', 'Page has about '.$page['wordCount'].' visible words; review whether the amount of content is intentional.');
         }
 
         if ($page['openGraph']['title'] === null) {
@@ -190,11 +249,15 @@ class HtmlAuditor
         if ($page['hreflangs'] !== []) {
             $self = $this->urls->normalize($page['url']);
             $selfFound = false;
+            $selfLang = null;
             $seen = [];
 
             foreach ($page['hreflangs'] as $entry) {
                 if ($this->urls->normalize($entry['href']) === $self) {
                     $selfFound = true;
+                    if ($entry['lang'] !== 'x-default') {
+                        $selfLang = $entry['lang'];
+                    }
                 }
 
                 if (isset($seen[$entry['lang']])) {
@@ -203,10 +266,7 @@ class HtmlAuditor
 
                 $seen[$entry['lang']] = true;
 
-                if (
-                    $entry['lang'] !== 'x-default'
-                    && ! preg_match('/^[a-z]{2,3}(?:-[a-z]{2})?$/i', $entry['lang'])
-                ) {
+                if (! $this->validHreflangShape($entry['lang'])) {
                     $this->issue($page, 'hreflang_code_suspicious', 'warning', 'Suspicious hreflang code: '.$entry['lang'].'.');
                 }
             }
@@ -214,7 +274,67 @@ class HtmlAuditor
             if (! $selfFound) {
                 $this->issue($page, 'hreflang_self_missing', 'warning', 'Hreflang set does not include a self-reference.');
             }
+
+            if ($selfLang !== null && $page['lang'] !== null && $this->languageBase($selfLang) !== $this->languageBase($page['lang'])) {
+                $this->issue(
+                    $page,
+                    'html_lang_hreflang_mismatch',
+                    'info',
+                    'HTML lang ('.$page['lang'].') differs from the self-referencing hreflang ('.$selfLang.').',
+                );
+            }
         }
+    }
+
+    private function validHreflangShape(string $code): bool
+    {
+        if ($code === 'x-default') {
+            return true;
+        }
+
+        return preg_match('/^[a-z]{2}(?:-(?:[a-z]{2}|hans|hant)(?:-[a-z]{2})?)?$/i', $code) === 1;
+    }
+
+    private function languageBase(string $code): string
+    {
+        return strtolower(explode('-', $code, 2)[0]);
+    }
+
+    private function directiveContains(?string $value, string $needle): bool
+    {
+        if ($value === null) {
+            return false;
+        }
+
+        $tokens = preg_split('/[\s,;]+/', strtolower($value), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+
+        return in_array(strtolower($needle), $tokens, true);
+    }
+
+    private function wordCount(DOMXPath $xpath): int
+    {
+        $nodes = $xpath->query('//body//text()[not(ancestor::script) and not(ancestor::style) and not(ancestor::noscript) and not(ancestor::svg)]');
+
+        if (! $nodes instanceof DOMNodeList) {
+            return 0;
+        }
+
+        $parts = [];
+        foreach ($nodes as $node) {
+            $text = $this->clean($node->textContent ?? '');
+            if ($text !== '') {
+                $parts[] = $text;
+            }
+        }
+
+        $text = trim(implode(' ', $parts));
+        if ($text === '') {
+            return 0;
+        }
+
+        preg_match_all('/[\p{L}\p{N}]+(?:[\'’\-][\p{L}\p{N}]+)*/u', $text, $matches);
+
+        return count($matches[0] ?? []);
     }
 
     private function structuredData(DOMXPath $xpath): array
