@@ -84,4 +84,37 @@ HTML;
         $this->assertNotNull($page['contentHash']);
     }
 
+
+    public function test_short_title_and_thin_content_heuristics_avoid_common_false_positives(): void
+    {
+        $auditor = new HtmlAuditor(new UrlGuard(), new LanguageDetector());
+
+        $html = <<<'HTML'
+<!doctype html>
+<html lang="en">
+<head>
+<title>Contact — Example Brand</title>
+<meta name="description" content="Contact Example Brand about products, projects, partnerships and other enquiries using this page.">
+<link rel="canonical" href="https://example.com/contact/">
+<meta property="og:title" content="Contact — Example Brand">
+<meta property="og:description" content="Contact Example Brand about products, projects, partnerships and other enquiries using this page.">
+<meta property="og:image" content="https://example.com/image.jpg">
+<meta name="twitter:card" content="summary_large_image">
+</head>
+<body>
+<main>
+<h1>Contact</h1>
+<p>This contact page gives visitors a direct way to get in touch about projects, partnerships, products and general enquiries. It intentionally stays concise while still explaining what the form is for and how it should be used.</p>
+</main>
+</body>
+</html>
+HTML;
+
+        $page = $auditor->parse('https://example.com/contact/', 200, 'text/html', $html);
+        $codes = array_column($page['issues'], 'code');
+
+        $this->assertNotContains('title_short', $codes);
+        $this->assertNotContains('content_thin', $codes);
+    }
+
 }
