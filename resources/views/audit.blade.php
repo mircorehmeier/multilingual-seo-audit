@@ -93,6 +93,7 @@
               <th>Lang</th>
               <th>Hreflang</th>
               <th>Canonical</th>
+              <th>Indexability</th>
               <th>Issues</th>
             </tr>
           </thead>
@@ -130,6 +131,7 @@
       <td class="lang-cell"></td>
       <td class="hreflang-cell"></td>
       <td class="canonical-cell"></td>
+      <td class="indexability-cell"></td>
       <td class="issues-cell"></td>
     </tr>
   </template>
