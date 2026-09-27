@@ -24,7 +24,7 @@ class HtmlAuditor
     ) {
     }
 
-    public function parse(string $url, int $status, string $contentType, string $html): array
+    public function parse(string $url, int $status, string $contentType, string $html, array $externalHreflangs = []): array
     {
         $previous = libxml_use_internal_errors(true);
 
@@ -73,12 +73,15 @@ class HtmlAuditor
                 $href = $this->urls->resolve($url, $node->getAttribute('href'));
 
                 if ($code !== '' && $href !== null) {
-                    $hreflangs[] = ['lang' => $code, 'href' => $href];
+                    $hreflangs[] = ['lang' => $code, 'href' => $href, 'source' => 'html'];
                 }
             }
         }
 
+        $hreflangs = $this->mergeHreflangs($hreflangs, $externalHreflangs);
+
         $links = [];
+        $linkDetails = [];
         $linkNodes = $xpath->query('//a[@href]');
 
         if ($linkNodes instanceof DOMNodeList) {
@@ -91,6 +94,14 @@ class HtmlAuditor
 
                 if ($resolved !== null && ! preg_match(self::SKIP_EXTENSION, $resolved)) {
                     $links[$resolved] = true;
+                    $detailKey = $resolved.'|'.$this->linkLocation($node);
+                    if (! isset($linkDetails[$detailKey])) {
+                        $linkDetails[$detailKey] = [
+                            'href' => $resolved,
+                            'text' => $this->nodeText($node),
+                            'location' => $this->linkLocation($node),
+                        ];
+                    }
                 }
             }
         }
@@ -130,7 +141,8 @@ class HtmlAuditor
         $wordCount = $this->countWords($visibleText);
         $languageDetection = $this->languageDetector->detect($visibleText);
         $fingerprintText = $this->fingerprintText($xpath);
-        $contentHash = $this->countWords($fingerprintText) >= 80
+        $fingerprintWords = $this->countWords($fingerprintText);
+        $contentHash = $fingerprintWords >= 80
             ? hash('sha256', $this->normalizeForHash($fingerprintText))
             : null;
         $structuredData = $this->structuredData($xpath);
@@ -156,6 +168,9 @@ class HtmlAuditor
             'detectedLang' => $languageDetection['lang'],
             'languageConfidence' => $languageDetection['confidence'],
             'contentHash' => $contentHash,
+            'contentHashStatus' => $contentHash !== null
+                ? 'available'
+                : 'not generated ('.$fingerprintWords.' fingerprint words; minimum 80)',
             'openGraph' => [
                 'title' => $this->meta($xpath, 'property', 'og:title'),
                 'description' => $this->meta($xpath, 'property', 'og:description'),
@@ -171,6 +186,7 @@ class HtmlAuditor
             'structuredData' => $structuredData,
             'issues' => [],
             'links' => array_keys($links),
+            'linkDetails' => array_values($linkDetails),
         ];
 
         $this->addPageIssues($page, $canonicalNodes instanceof DOMNodeList ? $canonicalNodes->length : 0, $canonicalRaw);
@@ -266,9 +282,18 @@ class HtmlAuditor
             $this->issue($page, 'twitter_card_missing', 'info', 'Missing twitter:card.');
         }
 
-        if ($page['structuredData']['invalid'] > 0) {
-            $count = $page['structuredData']['invalid'];
+        if ($page['structuredData']['invalidSyntax'] > 0) {
+            $count = $page['structuredData']['invalidSyntax'];
             $this->issue($page, 'jsonld_invalid', 'error', "{$count} JSON-LD block(s) contain invalid JSON.");
+        }
+
+        foreach ($page['structuredData']['semanticIssues'] as $semanticIssue) {
+            $this->issue(
+                $page,
+                $semanticIssue['code'],
+                $semanticIssue['severity'],
+                $semanticIssue['message'],
+            );
         }
 
         if ($page['hreflangs'] !== []) {
@@ -451,25 +476,27 @@ class HtmlAuditor
         );
 
         $scripts = $nodes instanceof DOMNodeList ? $nodes->length : 0;
-        $valid = 0;
-        $invalid = 0;
+        $parseable = 0;
+        $invalidSyntax = 0;
         $types = [];
+        $semanticIssues = [];
 
         if ($nodes instanceof DOMNodeList) {
             foreach ($nodes as $node) {
                 $raw = trim($node->textContent ?? '');
 
                 if ($raw === '') {
-                    $invalid++;
+                    $invalidSyntax++;
                     continue;
                 }
 
                 try {
                     $decoded = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
-                    $valid++;
+                    $parseable++;
                     $this->collectTypes($decoded, $types);
+                    $this->collectStructuredDataSemanticIssues($decoded, $semanticIssues);
                 } catch (\JsonException) {
-                    $invalid++;
+                    $invalidSyntax++;
                 }
             }
         }
@@ -477,12 +504,97 @@ class HtmlAuditor
         $types = array_values(array_unique($types));
         sort($types);
 
+        $semanticIssues = array_values(array_reduce(
+            $semanticIssues,
+            static function (array $carry, array $issue): array {
+                $carry[$issue['code'].'|'.$issue['message']] = $issue;
+                return $carry;
+            },
+            [],
+        ));
+
         return [
             'scripts' => $scripts,
-            'valid' => $valid,
-            'invalid' => $invalid,
+            'parseable' => $parseable,
+            'invalidSyntax' => $invalidSyntax,
             'types' => $types,
+            'semanticIssues' => $semanticIssues,
         ];
+    }
+
+    private function collectStructuredDataSemanticIssues(mixed $node, array &$issues): void
+    {
+        if (! is_array($node)) {
+            return;
+        }
+
+        if (array_is_list($node)) {
+            foreach ($node as $value) {
+                $this->collectStructuredDataSemanticIssues($value, $issues);
+            }
+            return;
+        }
+
+        if (isset($node['@graph']) && is_array($node['@graph'])) {
+            $this->collectStructuredDataSemanticIssues($node['@graph'], $issues);
+        }
+
+        $types = array_values(array_filter(
+            array_map('strval', (array) ($node['@type'] ?? [])),
+            static fn (string $type): bool => $type !== '',
+        ));
+
+        if ($types === [] && ! isset($node['@graph']) && (isset($node['@context']) || isset($node['@id']))) {
+            $issues[] = [
+                'code' => 'jsonld_type_missing',
+                'severity' => 'info',
+                'message' => 'A JSON-LD entity has no @type; review whether the structured data describes a concrete schema.org entity.',
+            ];
+        }
+
+        if ($types !== [] && ! isset($node['@context'])) {
+            $issues[] = [
+                'code' => 'jsonld_context_missing',
+                'severity' => 'info',
+                'message' => 'A JSON-LD entity has @type but no local @context. This can be valid inside @graph, but review standalone blocks.',
+            ];
+        }
+
+        if (in_array('Product', $types, true)) {
+            if (empty($node['name'])) {
+                $issues[] = [
+                    'code' => 'jsonld_product_name_missing',
+                    'severity' => 'warning',
+                    'message' => 'Product JSON-LD is missing name.',
+                ];
+            }
+
+            if (empty($node['offers']) && empty($node['review']) && empty($node['aggregateRating'])) {
+                $issues[] = [
+                    'code' => 'jsonld_product_offer_rating_missing',
+                    'severity' => 'warning',
+                    'message' => 'Product JSON-LD has no offers, review, or aggregateRating; review rich-result eligibility.',
+                ];
+            }
+        }
+
+        if (in_array('BreadcrumbList', $types, true) && empty($node['itemListElement'])) {
+            $issues[] = [
+                'code' => 'jsonld_breadcrumb_items_missing',
+                'severity' => 'warning',
+                'message' => 'BreadcrumbList JSON-LD is missing itemListElement.',
+            ];
+        }
+
+        foreach ($node as $key => $value) {
+            if ($key === '@graph') {
+                continue;
+            }
+
+            if (is_array($value)) {
+                $this->collectStructuredDataSemanticIssues($value, $issues);
+            }
+        }
     }
 
     private function collectTypes(mixed $node, array &$types): void
@@ -504,6 +616,65 @@ class HtmlAuditor
                 $this->collectTypes($value, $types);
             }
         }
+    }
+
+    private function mergeHreflangs(array ...$sets): array
+    {
+        $merged = [];
+        $seen = [];
+
+        foreach ($sets as $set) {
+            foreach ($set as $entry) {
+                $lang = strtolower($this->clean((string) ($entry['lang'] ?? '')));
+                $href = $this->urls->resolve((string) ($entry['base'] ?? ''), (string) ($entry['href'] ?? ''));
+
+                if (($entry['base'] ?? '') === '') {
+                    $href = $entry['href'] ?? null;
+                }
+
+                if ($lang === '' || ! is_string($href) || $href === '') {
+                    continue;
+                }
+
+                $key = $lang.'|'.$this->urls->normalize($href);
+                if (isset($seen[$key])) {
+                    continue;
+                }
+
+                $seen[$key] = true;
+                $merged[] = [
+                    'lang' => $lang,
+                    'href' => $href,
+                    'source' => (string) ($entry['source'] ?? 'external'),
+                ];
+            }
+        }
+
+        return $merged;
+    }
+
+    private function linkLocation(DOMElement $node): string
+    {
+        $current = $node->parentNode;
+
+        while ($current instanceof DOMNode) {
+            if ($current instanceof DOMElement) {
+                $tag = strtolower($current->tagName);
+                if (in_array($tag, ['main', 'article'], true)) {
+                    return 'contextual';
+                }
+                if ($tag === 'nav') {
+                    return 'navigation';
+                }
+                if ($tag === 'footer') {
+                    return 'footer';
+                }
+            }
+
+            $current = $current->parentNode;
+        }
+
+        return 'other';
     }
 
     private function meta(DOMXPath $xpath, string $attribute, string $value): ?string
