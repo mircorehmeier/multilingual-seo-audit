@@ -24,6 +24,8 @@ class SiteAuditor
     public function __construct(
         private readonly UrlGuard $urls,
         private readonly HtmlAuditor $html,
+        private readonly RobotsPolicy $robotsPolicy,
+        private readonly SocialImageInspector $socialImages,
     ) {
     }
 
@@ -41,7 +43,9 @@ class SiteAuditor
 
         $site = $this->discoverSiteMetadata($crawlOrigin);
         $sitemapSeedUrls = $site['seedUrls'];
-        unset($site['seedUrls']);
+        $sitemapHreflangs = $site['sitemapHreflangs'];
+        $robotsGroups = $site['robotsGroups'];
+        unset($site['seedUrls'], $site['sitemapHreflangs'], $site['robotsGroups']);
 
         $queue = [$startUrl];
         $queued = [$this->urlKey($startUrl) => true];
@@ -161,15 +165,33 @@ class SiteAuditor
                     continue;
                 }
 
+                $externalHreflangs = array_merge(
+                    $this->httpHreflangs($finalUrl, $response->header('Link')),
+                    $sitemapHreflangs[$finalKey] ?? [],
+                );
+
                 $page = $this->html->parse(
                     $finalUrl,
                     $response->status(),
                     $contentType,
                     $body,
+                    $externalHreflangs,
                 );
 
                 $page['requestedUrl'] = $requestedUrl;
                 $page['redirectChain'] = $redirectChain;
+                $page['robotsTxt'] = $this->robotsPolicy->decision($finalUrl, $robotsGroups, 'Googlebot');
+
+                if (! $page['robotsTxt']['allowed']) {
+                    $this->issue(
+                        $page,
+                        'robots_txt_blocked',
+                        'warning',
+                        'robots.txt blocks Googlebot from this URL via '.
+                        ($page['robotsTxt']['matchedDirective'] ?? 'disallow').': '.
+                        ($page['robotsTxt']['matchedRule'] ?? '').'.',
+                    );
+                }
 
                 if (count($redirectChain) > 1) {
                     $this->issue(
@@ -236,14 +258,25 @@ class SiteAuditor
             }
         }
 
+        $targetChecks = $this->checkUncrawledInternalLinks($pages, $crawlOrigin, $redirectMap);
+        foreach ($targetChecks['redirectMap'] as $key => $entry) {
+            $redirectMap[$key] = $entry;
+        }
+        foreach ($targetChecks['redirects'] as $key => $entry) {
+            $redirectedRequests[$key] = $entry;
+        }
+
+        $socialImagesChecked = $this->attachSocialImageDiagnostics($pages);
+
         $crossPage = $this->addCrossPageChecks(
             $pages,
             $crawlOrigin,
             $redirectMap,
             $sitemapSeedUrls,
+            $targetChecks['checks'],
         );
 
-        $site['issues'] = array_merge($site['issues'], $crossPage['siteIssues']);
+        $site['issues'] = array_merge($site['issues'], $targetChecks['siteIssues'], $crossPage['siteIssues']);
 
         $indexablePages = 0;
         foreach ($pages as &$page) {
@@ -258,6 +291,7 @@ class SiteAuditor
         $languages = [];
         $hreflangCodes = [];
         $noindexPages = 0;
+        $robotsBlockedPages = 0;
 
         foreach ($site['issues'] as $issue) {
             $counts[$issue['severity']]++;
@@ -274,6 +308,10 @@ class SiteAuditor
 
             if ($this->pageIsNoindex($page)) {
                 $noindexPages++;
+            }
+
+            if (($page['robotsTxt']['allowed'] ?? true) === false) {
+                $robotsBlockedPages++;
             }
 
             foreach ($page['issues'] as $issue) {
@@ -321,6 +359,11 @@ class SiteAuditor
                 'duplicateContentGroups' => $crossPage['duplicateContentGroups'],
                 'internalLinksToRedirects' => $crossPage['internalLinksToRedirects'],
                 'mixedSchemeLinks' => $crossPage['mixedSchemeLinks'],
+                'robotsBlockedPages' => $robotsBlockedPages,
+                'linkTargetsChecked' => count($targetChecks['checks']),
+                'socialImagesChecked' => $socialImagesChecked,
+                'maxCrawlDepth' => $crossPage['maxCrawlDepth'],
+                'contextualLinks' => $crossPage['contextualLinks'],
             ],
         ];
     }
