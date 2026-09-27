@@ -2,7 +2,7 @@
 
 **Live demo:** https://seo-audit.rehmeier.es/
 
-An open-source multilingual technical SEO auditor built with **Laravel 13** and PHP. Current application version: **0.4.1**.
+An open-source multilingual technical SEO auditor built with **Laravel 13** and PHP. Current application version: **0.5.0**.
 
 It crawls a same-origin website and reports concrete technical issues instead of inventing an opaque SEO score.
 
@@ -17,12 +17,13 @@ It crawls a same-origin website and reports concrete technical issues instead of
 - canonical tags
 - missing and duplicate titles
 - missing and duplicate meta descriptions
-- title/meta display-length heuristics with lower-noise severity rules
+- title/meta display-length heuristics with deliberately conservative, lower-noise severity rules
 - Open Graph metadata
 - Twitter/X card metadata
 - JSON-LD validity and discovered schema types
 - robots.txt and XML sitemap discovery
 - meta robots and X-Robots-Tag noindex reporting
+- explicit technical indexability status with a human-readable reason
 - H1 structure, visible-word heuristic and missing image alt attributes
 - conservative visible-content language detection vs. `<html lang>`
 - exact main-body duplicate-content groups
@@ -35,6 +36,7 @@ It crawls a same-origin website and reports concrete technical issues instead of
 - canonical target status/indexability checks
 - HTTP/fetch failures
 - CSV and JSON exports
+- self-describing CSV exports with audit timestamp, engine version, social metadata, heading counts and JSON-LD diagnostics
 
 ## Tech stack
 
