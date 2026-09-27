@@ -718,6 +718,241 @@ class SiteAuditor
         throw new \RuntimeException('Too many redirects.');
     }
 
+    private function httpHreflangs(string $baseUrl, ?string $header): array
+    {
+        if ($header === null || trim($header) === '') {
+            return [];
+        }
+
+        preg_match_all(
+            '/<([^>]+)>\s*((?:;\s*[A-Za-z][A-Za-z0-9_-]*\s*=\s*(?:"[^"]*"|[^;,\s]+))+)/',
+            $header,
+            $matches,
+            PREG_SET_ORDER,
+        );
+
+        $alternates = [];
+
+        foreach ($matches as $match) {
+            $params = $match[2] ?? '';
+
+            if (
+                ! preg_match('/;\s*rel\s*=\s*"?([^";]+)"?/i', $params, $rel)
+                || ! in_array('alternate', preg_split('/\s+/', strtolower(trim($rel[1]))) ?: [], true)
+                || ! preg_match('/;\s*hreflang\s*=\s*"?([^";,\s]+)"?/i', $params, $langMatch)
+            ) {
+                continue;
+            }
+
+            $href = $this->urls->resolve($baseUrl, $match[1]);
+            $lang = strtolower(trim($langMatch[1]));
+
+            if ($href !== null && $lang !== '') {
+                $alternates[] = [
+                    'lang' => $lang,
+                    'href' => $href,
+                    'source' => 'http-header',
+                ];
+            }
+        }
+
+        return $alternates;
+    }
+
+    private function checkUncrawledInternalLinks(array $pages, string $crawlOrigin, array $knownRedirects): array
+    {
+        $knownPages = [];
+        foreach ($pages as $page) {
+            try {
+                $knownPages[$this->urlKey($page['url'])] = true;
+            } catch (Throwable) {
+                // Ignore malformed page URLs already represented as fetch failures.
+            }
+        }
+
+        $candidates = [];
+        foreach ($pages as $page) {
+            foreach ($page['links'] ?? [] as $link) {
+                if (! $this->urls->sameOrigin($crawlOrigin, $link)) {
+                    continue;
+                }
+
+                try {
+                    $key = $this->urlKey($link);
+                } catch (Throwable) {
+                    continue;
+                }
+
+                if (isset($knownPages[$key]) || isset($knownRedirects[$key])) {
+                    continue;
+                }
+
+                $candidates[$key] = $link;
+            }
+        }
+
+        $totalCandidates = count($candidates);
+        $candidates = array_slice($candidates, 0, 50, true);
+        $checks = [];
+        $redirectMap = [];
+        $redirects = [];
+        $siteIssues = [];
+
+        if ($totalCandidates > 50) {
+            $siteIssues[] = [
+                'code' => 'link_target_check_limited',
+                'severity' => 'info',
+                'message' => 'Checked 50 of '.$totalCandidates.' uncrawled internal link targets because the independent link-check limit was reached.',
+            ];
+        }
+
+        foreach (array_chunk($candidates, self::CONCURRENCY, true) as $batch) {
+            $urls = array_values($batch);
+            $responses = Http::pool(
+                fn (Pool $pool) => array_map(
+                    fn (string $url) => $pool
+                        ->withHeaders([
+                            'User-Agent' => $this->userAgent(),
+                            'Accept' => 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.2',
+                        ])
+                        ->withOptions(['allow_redirects' => false])
+                        ->connectTimeout(3)
+                        ->timeout(self::RESOURCE_TIMEOUT)
+                        ->get($url),
+                    $urls,
+                ),
+                concurrency: self::CONCURRENCY,
+            );
+
+            foreach ($urls as $index => $requestedUrl) {
+                $response = $responses[$index] ?? null;
+                $requestedKey = $this->urlKey($requestedUrl);
+
+                if ($response instanceof Throwable || ! $response instanceof Response) {
+                    $checks[$requestedKey] = [
+                        'url' => $requestedUrl,
+                        'status' => 0,
+                        'finalUrl' => $requestedUrl,
+                        'chain' => [],
+                        'error' => $response instanceof Throwable ? $response->getMessage() : 'Request failed.',
+                    ];
+                    continue;
+                }
+
+                try {
+                    [$finalResponse, $finalUrl, $chain] = $this->followRedirects(
+                        $requestedUrl,
+                        $response,
+                        'text/html,application/xhtml+xml;q=0.9,*/*;q=0.2',
+                        self::RESOURCE_TIMEOUT,
+                    );
+
+                    $checks[$requestedKey] = [
+                        'url' => $requestedUrl,
+                        'status' => $finalResponse->status(),
+                        'finalUrl' => $finalUrl,
+                        'chain' => $chain,
+                        'error' => null,
+                    ];
+
+                    if ($chain !== []) {
+                        $redirects[$requestedKey] = [
+                            'requestedUrl' => $requestedUrl,
+                            'finalUrl' => $finalUrl,
+                            'chain' => $chain,
+                        ];
+
+                        foreach ($chain as $hop) {
+                            $redirectMap[$this->urlKey($hop['from'])] = [
+                                'finalUrl' => $finalUrl,
+                                'chain' => $chain,
+                            ];
+                        }
+                    }
+                } catch (Throwable $exception) {
+                    $checks[$requestedKey] = [
+                        'url' => $requestedUrl,
+                        'status' => 0,
+                        'finalUrl' => $requestedUrl,
+                        'chain' => [],
+                        'error' => $exception->getMessage(),
+                    ];
+                }
+            }
+        }
+
+        return compact('checks', 'redirectMap', 'redirects', 'siteIssues');
+    }
+
+    private function attachSocialImageDiagnostics(array &$pages): int
+    {
+        $urls = [];
+
+        foreach ($pages as $page) {
+            foreach ([$page['openGraph']['image'] ?? null, $page['twitter']['image'] ?? null] as $url) {
+                if (is_string($url) && $url !== '') {
+                    $urls[$url] = $url;
+                }
+            }
+        }
+
+        $urls = array_slice(array_values($urls), 0, 30);
+        $results = $this->socialImages->inspect($urls);
+
+        foreach ($pages as &$page) {
+            $page['socialImages'] = [
+                'openGraph' => null,
+                'twitter' => null,
+            ];
+
+            foreach ([
+                'openGraph' => $page['openGraph']['image'] ?? null,
+                'twitter' => $page['twitter']['image'] ?? null,
+            ] as $kind => $url) {
+                if (! is_string($url) || $url === '' || ! isset($results[$url])) {
+                    continue;
+                }
+
+                $result = $results[$url];
+                $page['socialImages'][$kind] = $result;
+                $label = $kind === 'openGraph' ? 'Open Graph' : 'Twitter/X';
+
+                if (($result['status'] ?? 0) === 0) {
+                    $this->issue(
+                        $page,
+                        'social_image_unreachable',
+                        'warning',
+                        $label.' image could not be fetched: '.$url.'.',
+                    );
+                } elseif (($result['status'] ?? 0) >= 400) {
+                    $this->issue(
+                        $page,
+                        'social_image_http_error',
+                        'warning',
+                        $label.' image returns HTTP '.$result['status'].': '.$url.'.',
+                    );
+                } elseif (($result['status'] ?? 0) >= 300) {
+                    $this->issue(
+                        $page,
+                        'social_image_redirect',
+                        'info',
+                        $label.' image URL redirects (HTTP '.$result['status'].'): '.$url.'.',
+                    );
+                } elseif (! str_starts_with((string) ($result['contentType'] ?? ''), 'image/')) {
+                    $this->issue(
+                        $page,
+                        'social_image_content_type',
+                        'warning',
+                        $label.' image URL does not return an image content type: '.$url.'.',
+                    );
+                }
+            }
+        }
+        unset($page);
+
+        return count($results);
+    }
+
     private function addCrossPageChecks(
         array &$pages,
         string $crawlOrigin,
