@@ -1,20 +1,24 @@
 #!/bin/sh
 set -eu
 
-SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-cd "$SCRIPT_DIR"
+APP_DIR="${APP_DIR:-$HOME/seo-audit}"
+cd "$APP_DIR"
 
 echo "==> multilingual-seo-audit deploy"
 echo "==> Working directory: $(pwd)"
 
-if command -v npm >/dev/null 2>&1; then
-  :
-elif [ -x /opt/plesk/node/22/bin/npm ]; then
+if [ -x /opt/plesk/node/22/bin/npm ]; then
   export PATH="/opt/plesk/node/22/bin:$PATH"
+elif command -v npm >/dev/null 2>&1; then
+  :
 else
-  echo "ERROR: npm not found. Ensure Node.js 22 is enabled for this Plesk subscription."
+  echo "ERROR: npm not found. The Plesk Git deployment action is probably running inside a chroot."
+  echo "Set this subscription's SSH access to non-chrooted /bin/bash, then deploy again."
   exit 1
 fi
+
+echo "==> Node: $(node --version)"
+echo "==> npm: $(npm --version)"
 
 echo "==> Installing dependencies"
 npm install --include=dev --no-audit --no-fund
