@@ -38,4 +38,16 @@ TXT);
         $this->assertSame('/tmp/*', $blocked['matchedRule']);
         $this->assertTrue($allowed['allowed']);
     }
+
+    public function test_longer_wildcard_rule_beats_shorter_allow_rule(): void
+    {
+        $policy = new RobotsPolicy();
+        $groups = $policy->parse("User-agent: *\nAllow: /page\nDisallow: /*.htm\n");
+
+        $decision = $policy->decision('https://example.com/page.htm', $groups, 'Googlebot');
+
+        $this->assertFalse($decision['allowed']);
+        $this->assertSame('/*.htm', $decision['matchedRule']);
+    }
+
 }
