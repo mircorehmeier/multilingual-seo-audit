@@ -287,6 +287,7 @@ class SiteAuditor
                 'sitemaps' => $site['sitemaps'],
                 'sitemapUrlsDiscovered' => $site['sitemapUrlsDiscovered'],
                 'crawlCoverage' => $crossPage['crawlCoverage'],
+                'redirects' => array_values($redirectedRequests),
             ],
             'siteIssues' => $site['issues'],
             'pages' => $pages,
@@ -715,7 +716,7 @@ class SiteAuditor
                 $effectiveKey = $targetKey;
 
                 if (isset($redirectMap[$targetKey])) {
-                    $redirectLinks[$targetKey] = $redirectMap[$targetKey]['finalUrl'];
+                    $redirectLinks[$targetKey] = $redirectMap[$targetKey];
 
                     try {
                         $effectiveKey = $this->urlKey($redirectMap[$targetKey]['finalUrl']);
@@ -747,8 +748,23 @@ class SiteAuditor
                     $page,
                     'internal_link_to_redirect',
                     'warning',
-                    count($redirectLinks).' internal link(s) point to redirecting URLs; first: '.$first.' → '.$redirectLinks[$first].'. Link directly to the final URL.',
+                    count($redirectLinks).' internal link(s) point to redirecting URLs; first: '.$first.' → '.$redirectLinks[$first]['finalUrl'].'. Link directly to the final URL.',
                 );
+
+                $chainLinks = array_filter(
+                    $redirectLinks,
+                    fn (array $entry) => count($entry['chain']) > 1,
+                );
+
+                if ($chainLinks !== []) {
+                    $firstChainUrl = array_key_first($chainLinks);
+                    $this->issue(
+                        $page,
+                        'internal_link_redirect_chain',
+                        'warning',
+                        count($chainLinks).' internal link(s) enter a redirect chain; first: '.$firstChainUrl.' follows '.count($chainLinks[$firstChainUrl]['chain']).' redirects.',
+                    );
+                }
             }
 
             if ($mixedScheme !== []) {
