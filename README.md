@@ -2,7 +2,7 @@
 
 **Live demo:** https://seo-audit.rehmeier.es/
 
-An open-source multilingual technical SEO auditor built with **Laravel 13** and PHP. Current application version: **0.3.0**.
+An open-source multilingual technical SEO auditor built with **Laravel 13** and PHP. Current application version: **0.4.0**.
 
 It crawls a same-origin website and reports concrete technical issues instead of inventing an opaque SEO score.
 
@@ -24,7 +24,14 @@ It crawls a same-origin website and reports concrete technical issues instead of
 - robots.txt and XML sitemap discovery
 - meta robots and X-Robots-Tag noindex reporting
 - H1 structure, visible-word heuristic and missing image alt attributes
+- conservative visible-content language detection vs. `<html lang>`
+- exact main-body duplicate-content groups
 - broken internal links when their targets are included in the crawl
+- internal links that unnecessarily pass through redirects
+- redirect chains and temporary redirects
+- same-host mixed-scheme/port links
+- sitemap crawl coverage and orphan-page candidates when coverage is complete
+- sitemap URLs that redirect, are noindex, or canonicalize elsewhere
 - canonical target status/indexability checks
 - HTTP/fetch failures
 - CSV and JSON exports
@@ -123,13 +130,13 @@ sh "$HOME/seo-audit/deploy.sh" > "$HOME/seo-audit/deploy.log" 2>&1
 
 The script:
 
-1. finds a compatible Plesk PHP 8.3+ binary
+1. finds a compatible Plesk PHP 8.4.1+ binary
 2. runs Composer install with an optimized production autoloader
 3. creates/preserves the Laravel `.env`
 4. creates `APP_KEY` if necessary
 5. clears stale Laravel caches
 6. caches configuration and Blade views
-7. writes `public/deploy-status.txt`
+7. writes the release version and deployed Git commit to `public/deploy-status.txt`
 
 There is **no Node.js/Passenger runtime** in the Laravel version.
 
@@ -155,7 +162,7 @@ Composer + Laravel deployment
 
 - raw server-returned HTML only; JavaScript rendering is not included
 - hreflang in XML sitemaps and HTTP `Link` headers is not yet parsed
-- no automatic language/content detection yet
+- content-language detection is intentionally conservative and currently covers EN, DE, ES, PT, FR, IT and NL
 - reciprocal hreflang and link-target checks cover URLs present in the current crawl
 - sitemap discovery is capped at 8 sitemap files and 1,000 discovered URLs per audit
 - structured-data checks validate JSON and discover types, but do not yet validate every rich-result requirement
@@ -165,8 +172,7 @@ Composer + Laravel deployment
 ### V1.1
 
 - hreflang extraction from XML sitemaps and HTTP `Link` headers
-- stricter ISO language/region validation
-- crawl coverage and orphan-page reporting
+- broader automated tests for ISO language/region edge cases
 - shareable audit reports
 
 ### V2
