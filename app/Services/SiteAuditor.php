@@ -192,7 +192,7 @@ class SiteAuditor
                     }
 
                     $queued[$key] = true;
-                    $queue[] = $link;
+                    array_unshift($queue, $link);
                 }
             }
         }
@@ -342,6 +342,14 @@ class SiteAuditor
             }
 
             $body = $response->body();
+            $path = strtolower((string) parse_url($finalUrl, PHP_URL_PATH));
+            if (str_ends_with($path, '.gz') && function_exists('gzdecode')) {
+                $decoded = @gzdecode($body);
+                if ($decoded !== false) {
+                    $body = $decoded;
+                }
+            }
+
             if (strlen($body) > self::MAX_SITEMAP_BYTES) {
                 $issues[] = [
                     'code' => 'sitemap_too_large',
