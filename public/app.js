@@ -16,8 +16,36 @@ const tableSearch = document.querySelector('#table-search');
 const downloadJson = document.querySelector('#download-json');
 const downloadCsv = document.querySelector('#download-csv');
 const rowTemplate = document.querySelector('#page-row-template');
+const runtimeVersion = document.querySelector('#runtime-version');
+const resultEngineVersion = document.querySelector('#result-engine-version');
 
 let latestResult = null;
+
+async function verifyRuntimeVersion() {
+  if (!runtimeVersion) return;
+
+  const renderedVersion = runtimeVersion.dataset.renderedVersion || '';
+
+  try {
+    const response = await fetch('/api/health?ts=' + Date.now(), { cache: 'no-store' });
+    const health = await response.json();
+    const backendVersion = String(health.version || '').replace('-laravel', '');
+
+    if (backendVersion) {
+      runtimeVersion.innerHTML = '<span class="runtime-dot" aria-hidden="true"></span>Running version <strong>' + escapeHtml(backendVersion) + '</strong>';
+    }
+
+    const mismatch = Boolean(renderedVersion && backendVersion && renderedVersion !== backendVersion);
+    runtimeVersion.classList.toggle('mismatch', mismatch);
+
+    if (mismatch) {
+      runtimeVersion.title = 'The page HTML and backend report different versions. Hard refresh or redeploy.';
+      runtimeVersion.innerHTML += ' <span>· version mismatch</span>';
+    }
+  } catch {
+    runtimeVersion.title = 'Could not verify the backend version.';
+  }
+}
 
 function setStatus(message, isError = false) {
   status.textContent = message;
@@ -101,6 +129,7 @@ function render(result) {
   const parsed = new URL(result.startUrl);
   resultDomain.textContent = parsed.hostname;
   resultMeta.textContent = result.summary.pages + ' page' + (result.summary.pages === 1 ? '' : 's') + ' audited · ' + new Date(result.auditedAt).toLocaleString();
+  if (resultEngineVersion) resultEngineVersion.textContent = 'Engine v' + (result.version || 'unknown');
   summary.innerHTML = [
     summaryCard('Pages', result.summary.pages),
     summaryCard('Errors', result.summary.errors, 'error'),
@@ -199,3 +228,5 @@ downloadCsv.addEventListener('click', () => {
   }
   download('multilingual-seo-audit.csv', rows.map((row) => row.map(csvEscape).join(',')).join('\n'), 'text/csv;charset=utf-8');
 });
+
+verifyRuntimeVersion();

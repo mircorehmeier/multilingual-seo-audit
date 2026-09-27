@@ -6,20 +6,24 @@
   <title>Multilingual SEO Audit</title>
   <meta name="description" content="Audit hreflang, canonicals, indexability, metadata, sitemaps, links, headings, images and structured data across multilingual websites.">
   <meta name="color-scheme" content="light dark">
-  <link rel="stylesheet" href="/styles.css?v=0.4.0">
+  <link rel="stylesheet" href="/styles.css?v={{ config('audit.version') }}">
 </head>
 <body>
   <header class="site-header">
     <a class="brand" href="/" aria-label="Multilingual SEO Audit home">
       <span class="brand-mark">M</span>
       <span>Multilingual SEO Audit</span>
-      <span class="version-badge">v0.4</span>
+      <span class="version-badge">v{{ config('audit.version') }}</span>
     </a>
     <a class="github-link" href="https://github.com/mircorehmeier/multilingual-seo-audit" target="_blank" rel="noreferrer">GitHub ↗</a>
   </header>
 
   <main>
     <section class="hero">
+      <div class="runtime-version" id="runtime-version" data-rendered-version="{{ config('audit.version') }}">
+        <span class="runtime-dot" aria-hidden="true"></span>
+        Running version <strong>{{ config('audit.version') }}</strong>
+      </div>
       <p class="eyebrow">Technical SEO · EN / ES / DE and beyond</p>
       <h1>Find multilingual SEO problems before search engines do.</h1>
       <p class="intro">Crawl a website and inspect hreflang, canonicals, indexability, redirects, duplicate content, sitemap coverage, orphan candidates, internal links, metadata and structured data — without a black-box SEO score.</p>
@@ -50,6 +54,7 @@
           <p class="eyebrow">Audit results</p>
           <h2 id="result-domain">—</h2>
           <p id="result-meta" class="muted">—</p>
+          <p id="result-engine-version" class="engine-version">Engine v{{ config('audit.version') }}</p>
         </div>
         <div class="actions">
           <button id="download-json" class="secondary" type="button">Export JSON</button>
@@ -116,7 +121,7 @@
 
   <footer>
     <p>Open-source project by <a href="https://rehmeier.es/" target="_blank" rel="noreferrer">Mirco Rehmeier</a>.</p>
-    <p>Length and thin-content checks are heuristics, not Google ranking rules.</p>
+    <p>Length and thin-content checks are heuristics, not Google ranking rules. · Running v{{ config('audit.version') }}</p>
   </footer>
 
   <template id="page-row-template">
@@ -129,6 +134,6 @@
     </tr>
   </template>
 
-  <script type="module" src="/app.js?v=0.4.0"></script>
+  <script type="module" src="/app.js?v={{ config('audit.version') }}"></script>
 </body>
 </html>
