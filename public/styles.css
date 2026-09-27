@@ -35,13 +35,7 @@ button { cursor: pointer; }
 .brand { display: inline-flex; align-items: center; gap: 10px; font-weight: 750; text-decoration: none; }
 .brand-mark { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; background: var(--ink); color: white; }
 .version-badge { padding: 3px 7px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: .68rem; font-weight: 800; letter-spacing: .03em; }
-.runtime-version { width: fit-content; margin-bottom: 22px; padding: 9px 13px; display: inline-flex; align-items: center; gap: 8px; border: 1px solid #b8d8ca; border-radius: 999px; background: #eef8f3; color: #12553e; font-size: .88rem; }
-.runtime-version strong { font-size: .95rem; }
-.runtime-dot { width: 9px; height: 9px; border-radius: 50%; background: #16945f; box-shadow: 0 0 0 4px rgba(22,148,95,.12); }
-.runtime-version.mismatch { border-color: #e1bcbc; background: #fff0f0; color: var(--danger); }
-.runtime-version.mismatch .runtime-dot { background: var(--danger); box-shadow: 0 0 0 4px rgba(164,52,52,.12); }
-.engine-version { margin: 5px 0 0; color: var(--accent); font-size: .78rem; font-weight: 800; }
-.pill.detected-lang { border: 1px dashed #b7c6bd; background: #fff; }
+.runtime-version.mismatch .pill.detected-lang { border: 1px dashed #b7c6bd; background: #fff; }
 .github-link { font-size: .92rem; color: var(--muted); text-decoration: none; }
 .github-link:hover { color: var(--ink); }
 

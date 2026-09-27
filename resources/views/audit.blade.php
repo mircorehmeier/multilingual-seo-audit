@@ -20,10 +20,6 @@
 
   <main>
     <section class="hero">
-      <div class="runtime-version" id="runtime-version" data-rendered-version="{{ config('audit.version') }}">
-        <span class="runtime-dot" aria-hidden="true"></span>
-        Running version <strong>{{ config('audit.version') }}</strong>
-      </div>
       <p class="eyebrow">Technical SEO · EN / ES / DE and beyond</p>
       <h1>Find multilingual SEO problems before search engines do.</h1>
       <p class="intro">Crawl a website and inspect hreflang, canonicals, indexability, redirects, duplicate content, sitemap coverage, orphan candidates, internal links, metadata and structured data — without a black-box SEO score.</p>
@@ -54,7 +50,6 @@
           <p class="eyebrow">Audit results</p>
           <h2 id="result-domain">—</h2>
           <p id="result-meta" class="muted">—</p>
-          <p id="result-engine-version" class="engine-version">Engine v{{ config('audit.version') }}</p>
         </div>
         <div class="actions">
           <button id="download-json" class="secondary" type="button">Export JSON</button>
@@ -108,12 +103,12 @@
         <h2>Built for multilingual sites, with fewer false positives.</h2>
       </div>
       <div class="check-grid">
-        <article><h3>Hreflang</h3><p>Self references, code checks, reciprocal alternates, target status, indexability and canonical consistency.</p></article>
+        <article><h3>Hreflang</h3><p>HTML, XML sitemap and HTTP-header alternates, self references, reciprocal targets, indexability and canonical consistency.</p></article>
         <article><h3>Metadata</h3><p>Missing and duplicate titles/descriptions with language-aware duplicate handling and low-severity display heuristics.</p></article>
         <article><h3>Canonical</h3><p>Missing, invalid or multiple canonical tags and pages that canonicalize elsewhere.</p></article>
-        <article><h3>Social</h3><p>Open Graph and Twitter/X card metadata for cleaner shared previews.</p></article>
-        <article><h3>Sitemaps & links</h3><p>robots.txt sitemap discovery, crawl coverage, orphan candidates, broken links and internal links that unnecessarily pass through redirects.</p></article>
-        <article><h3>Structured data</h3><p>JSON-LD parsing, invalid blocks and discovered schema types.</p></article>
+        <article><h3>Social</h3><p>Open Graph and Twitter/X metadata plus image URL, status, content type and detectable dimensions.</p></article>
+        <article><h3>Sitemaps & links</h3><p>robots.txt rules, sitemap discovery, crawl coverage, orphan candidates, crawl depth, contextual links and independent checks for uncrawled link targets.</p></article>
+        <article><h3>Structured data</h3><p>JSON-LD syntax parsing, discovered schema types and cautious semantic checks for common rich-result structures.</p></article>
         <article><h3>Content quality</h3><p>Exact body-content duplicates, conservative language detection, H1 structure, thin-content heuristics and missing image alt attributes.</p></article>
         <article><h3>Redirects</h3><p>Redirect chains, temporary redirects, sitemap redirects and same-host links using a different scheme or port.</p></article>
       </div>
@@ -122,7 +117,7 @@
 
   <footer>
     <p>Open-source project by <a href="https://rehmeier.es/" target="_blank" rel="noreferrer">Mirco Rehmeier</a>.</p>
-    <p>Length and thin-content checks are heuristics, not Google ranking rules. · Running v{{ config('audit.version') }}</p>
+    <p>Length and thin-content checks are heuristics, not Google ranking rules.</p>
   </footer>
 
   <template id="page-row-template">

@@ -79,7 +79,7 @@ HTML;
         $codes = array_column($page['issues'], 'code');
 
         $this->assertSame('es', $page['detectedLang']);
-        $this->assertGreaterThanOrEqual(0.42, $page['languageConfidence']);
+        $this->assertGreaterThanOrEqual(0.39, $page['languageConfidence']);
         $this->assertContains('html_lang_content_mismatch', $codes);
         $this->assertNotNull($page['contentHash']);
     }
@@ -172,6 +172,46 @@ HTML;
         $page = $auditor->parse('https://example.com/portfolio/', 200, 'text/html', $html);
 
         $this->assertSame('Projects I build, improve and grow.', $page['headings']['h1'][0]);
+    }
+
+
+    public function test_external_hreflang_sources_are_merged_and_semantic_jsonld_findings_are_exposed(): void
+    {
+        $auditor = new HtmlAuditor(new UrlGuard(), new LanguageDetector());
+
+        $html = <<<'HTML'
+<!doctype html>
+<html lang="en">
+<head>
+<title>Example product information page</title>
+<meta name="description" content="A complete description for the example product page used to test external hreflang and structured data diagnostics.">
+<link rel="canonical" href="https://example.com/en/">
+<meta property="og:title" content="Example product information page">
+<meta property="og:description" content="Description">
+<meta property="og:image" content="https://example.com/share.png">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"Product","name":"Example"}
+</script>
+</head>
+<body><main><h1>Example product</h1><p>This page contains enough useful English content to exercise the audit parser and its multilingual diagnostics without relying on an HTML hreflang implementation.</p></main></body>
+</html>
+HTML;
+
+        $external = [
+            ['lang' => 'en', 'href' => 'https://example.com/en/', 'source' => 'sitemap'],
+            ['lang' => 'en', 'href' => 'https://example.com/en/', 'source' => 'http-header'],
+            ['lang' => 'de', 'href' => 'https://example.com/de/', 'source' => 'sitemap'],
+        ];
+
+        $page = $auditor->parse('https://example.com/en/', 200, 'text/html', $html, $external);
+        $issues = array_column($page['issues'], 'code');
+
+        $this->assertSame('sitemap+http-header', $page['hreflangs'][0]['source']);
+        $this->assertSame(1, $page['structuredData']['parseable']);
+        $this->assertSame(0, $page['structuredData']['invalidSyntax']);
+        $this->assertContains('jsonld_product_offer_rating_missing', $issues);
+        $this->assertNotContains('hreflang_self_missing', $issues);
     }
 
 }

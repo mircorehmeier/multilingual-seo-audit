@@ -162,4 +162,135 @@ HTML;
         $this->assertContains('orphan_candidate', $issuesByUrl['https://1.1.1.1/orphan/']);
     }
 
+
+    public function test_v06_regression_covers_robots_external_hreflang_uncrawled_links_social_images_and_depth(): void
+    {
+        $sharePng = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZQMcAAAAASUVORK5CYII=');
+        $linkHeader = '<https://1.1.1.1/en/>; rel="alternate"; hreflang="en", <https://1.1.1.1/de/>; rel="alternate"; hreflang="de"';
+
+        $page = static function (string $lang, string $path, string $title, string $links = '', bool $product = false): string {
+            $jsonLd = $product
+                ? '<script type="application/ld+json">{"@context":"https://schema.org","@type":"Product","name":"Example"}</script>'
+                : '';
+
+            return <<<HTML
+<!doctype html>
+<html lang="{$lang}">
+<head>
+<title>{$title}</title>
+<meta name="description" content="A complete and useful description for {$title} that gives search engines and visitors enough context.">
+<link rel="canonical" href="https://1.1.1.1{$path}">
+<meta property="og:title" content="{$title}">
+<meta property="og:description" content="A useful social description for {$title}.">
+<meta property="og:image" content="https://1.1.1.1/share.png">
+<meta property="og:url" content="https://1.1.1.1{$path}">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="{$title}">
+<meta name="twitter:description" content="A useful social description for {$title}.">
+<meta name="twitter:image" content="https://1.1.1.1/share.png">
+{$jsonLd}
+</head>
+<body>
+<main>
+<h1>{$title}</h1>
+<p>This page contains enough visible content for the multilingual SEO audit regression fixture. It describes the project, services, technology, users, information architecture, search visibility and practical website diagnostics in a realistic way for testing.</p>
+{$links}
+</main>
+</body>
+</html>
+HTML;
+        };
+
+        $sitemap = <<<'XML'
+<?xml version="1.0"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">
+  <url><loc>https://1.1.1.1/blocked/</loc></url>
+  <url>
+    <loc>https://1.1.1.1/de/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://1.1.1.1/en/"/>
+    <xhtml:link rel="alternate" hreflang="de" href="https://1.1.1.1/de/"/>
+  </url>
+  <url>
+    <loc>https://1.1.1.1/en/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://1.1.1.1/en/"/>
+    <xhtml:link rel="alternate" hreflang="de" href="https://1.1.1.1/de/"/>
+  </url>
+</urlset>
+XML;
+
+        Http::fake(function ($request) use ($page, $sitemap, $sharePng, $linkHeader) {
+            return match ($request->url()) {
+                'https://1.1.1.1/robots.txt' => Http::response(
+                    "User-agent: *\nDisallow: /blocked/\nSitemap: https://1.1.1.1/sitemap.xml\n",
+                    200,
+                    ['Content-Type' => 'text/plain'],
+                ),
+                'https://1.1.1.1/sitemap.xml' => Http::response($sitemap, 200, ['Content-Type' => 'application/xml']),
+                'https://1.1.1.1/' => Http::response('', 301, ['Location' => '/en/']),
+                'https://1.1.1.1/en/' => Http::response(
+                    $page(
+                        'en',
+                        '/en/',
+                        'English audit regression fixture page',
+                        '<a href="/blocked/">Blocked page</a><a href="/broken/">Broken target outside crawl quota</a>',
+                        true,
+                    ),
+                    200,
+                    ['Content-Type' => 'text/html', 'Link' => $linkHeader],
+                ),
+                'https://1.1.1.1/de/' => Http::response(
+                    $page('de', '/de/', 'Deutsche Audit Testseite'),
+                    200,
+                    ['Content-Type' => 'text/html', 'Link' => $linkHeader],
+                ),
+                'https://1.1.1.1/blocked/' => Http::response(
+                    $page('en', '/blocked/', 'Robots blocked test page'),
+                    200,
+                    ['Content-Type' => 'text/html'],
+                ),
+                'https://1.1.1.1/broken/' => Http::response('Not found', 404, ['Content-Type' => 'text/html']),
+                'https://1.1.1.1/share.png' => Http::response($sharePng, 200, ['Content-Type' => 'image/png']),
+                default => Http::response('', 404, ['Content-Type' => 'text/html']),
+            };
+        });
+
+        $result = app(SiteAuditor::class)->audit('https://1.1.1.1', 3);
+
+        $this->assertSame(3, $result['summary']['pages']);
+        $this->assertSame(1, $result['summary']['robotsBlockedPages']);
+        $this->assertGreaterThanOrEqual(1, $result['summary']['linkTargetsChecked']);
+        $this->assertSame(1, $result['summary']['socialImagesChecked']);
+        $this->assertGreaterThanOrEqual(2, $result['summary']['contextualLinks']);
+        $this->assertGreaterThanOrEqual(1, $result['summary']['maxCrawlDepth']);
+
+        $pages = [];
+        foreach ($result['pages'] as $auditedPage) {
+            $pages[$auditedPage['url']] = $auditedPage;
+        }
+
+        $home = $pages['https://1.1.1.1/en/'];
+        $blocked = $pages['https://1.1.1.1/blocked/'];
+
+        $homeIssues = array_column($home['issues'], 'code');
+        $blockedIssues = array_column($blocked['issues'], 'code');
+
+        $this->assertContains('broken_internal_link', $homeIssues);
+        $this->assertContains('jsonld_product_offer_rating_missing', $homeIssues);
+        $this->assertContains('robots_txt_blocked', $blockedIssues);
+        $this->assertFalse($blocked['robotsTxt']['allowed']);
+
+        $hreflangs = [];
+        foreach ($home['hreflangs'] as $entry) {
+            $hreflangs[$entry['lang']] = $entry;
+        }
+
+        $this->assertStringContainsString('http-header', $hreflangs['en']['source']);
+        $this->assertStringContainsString('sitemap', $hreflangs['en']['source']);
+        $this->assertSame('image/png', $home['socialImages']['openGraph']['contentType']);
+        $this->assertSame(1, $home['socialImages']['openGraph']['width']);
+        $this->assertSame(1, $home['socialImages']['openGraph']['height']);
+        $this->assertSame(0, $home['internalLinks']['crawlDepth']);
+        $this->assertSame(1, $blocked['internalLinks']['crawlDepth']);
+    }
+
 }

@@ -24,6 +24,8 @@ class SiteAuditor
     public function __construct(
         private readonly UrlGuard $urls,
         private readonly HtmlAuditor $html,
+        private readonly RobotsPolicy $robotsPolicy,
+        private readonly SocialImageInspector $socialImages,
     ) {
     }
 
@@ -41,7 +43,9 @@ class SiteAuditor
 
         $site = $this->discoverSiteMetadata($crawlOrigin);
         $sitemapSeedUrls = $site['seedUrls'];
-        unset($site['seedUrls']);
+        $sitemapHreflangs = $site['sitemapHreflangs'];
+        $robotsGroups = $site['robotsGroups'];
+        unset($site['seedUrls'], $site['sitemapHreflangs'], $site['robotsGroups']);
 
         $queue = [$startUrl];
         $queued = [$this->urlKey($startUrl) => true];
@@ -161,15 +165,35 @@ class SiteAuditor
                     continue;
                 }
 
+                $requestedKey = $this->urlKey($requestedUrl);
+                $externalHreflangs = array_merge(
+                    $this->httpHreflangs($finalUrl, $response->header('Link')),
+                    $sitemapHreflangs[$requestedKey] ?? [],
+                    $sitemapHreflangs[$finalKey] ?? [],
+                );
+
                 $page = $this->html->parse(
                     $finalUrl,
                     $response->status(),
                     $contentType,
                     $body,
+                    $externalHreflangs,
                 );
 
                 $page['requestedUrl'] = $requestedUrl;
                 $page['redirectChain'] = $redirectChain;
+                $page['robotsTxt'] = $this->robotsPolicy->decision($finalUrl, $robotsGroups, 'Googlebot');
+
+                if (! $page['robotsTxt']['allowed']) {
+                    $this->issue(
+                        $page,
+                        'robots_txt_blocked',
+                        'warning',
+                        'robots.txt blocks Googlebot from this URL via '.
+                        ($page['robotsTxt']['matchedDirective'] ?? 'disallow').': '.
+                        ($page['robotsTxt']['matchedRule'] ?? '').'.',
+                    );
+                }
 
                 if (count($redirectChain) > 1) {
                     $this->issue(
@@ -236,14 +260,25 @@ class SiteAuditor
             }
         }
 
+        $targetChecks = $this->checkUncrawledInternalLinks($pages, $crawlOrigin, $redirectMap);
+        foreach ($targetChecks['redirectMap'] as $key => $entry) {
+            $redirectMap[$key] = $entry;
+        }
+        foreach ($targetChecks['redirects'] as $key => $entry) {
+            $redirectedRequests[$key] = $entry;
+        }
+
+        $socialImagesChecked = $this->attachSocialImageDiagnostics($pages);
+
         $crossPage = $this->addCrossPageChecks(
             $pages,
             $crawlOrigin,
             $redirectMap,
             $sitemapSeedUrls,
+            $targetChecks['checks'],
         );
 
-        $site['issues'] = array_merge($site['issues'], $crossPage['siteIssues']);
+        $site['issues'] = array_merge($site['issues'], $targetChecks['siteIssues'], $crossPage['siteIssues']);
 
         $indexablePages = 0;
         foreach ($pages as &$page) {
@@ -258,6 +293,7 @@ class SiteAuditor
         $languages = [];
         $hreflangCodes = [];
         $noindexPages = 0;
+        $robotsBlockedPages = 0;
 
         foreach ($site['issues'] as $issue) {
             $counts[$issue['severity']]++;
@@ -274,6 +310,10 @@ class SiteAuditor
 
             if ($this->pageIsNoindex($page)) {
                 $noindexPages++;
+            }
+
+            if (($page['robotsTxt']['allowed'] ?? true) === false) {
+                $robotsBlockedPages++;
             }
 
             foreach ($page['issues'] as $issue) {
@@ -321,6 +361,11 @@ class SiteAuditor
                 'duplicateContentGroups' => $crossPage['duplicateContentGroups'],
                 'internalLinksToRedirects' => $crossPage['internalLinksToRedirects'],
                 'mixedSchemeLinks' => $crossPage['mixedSchemeLinks'],
+                'robotsBlockedPages' => $robotsBlockedPages,
+                'linkTargetsChecked' => count($targetChecks['checks']),
+                'socialImagesChecked' => $socialImagesChecked,
+                'maxCrawlDepth' => $crossPage['maxCrawlDepth'],
+                'contextualLinks' => $crossPage['contextualLinks'],
             ],
         ];
     }
@@ -330,6 +375,7 @@ class SiteAuditor
         $issues = [];
         $robotsUrl = $origin.'/robots.txt';
         $robotsStatus = 0;
+        $robotsGroups = [];
         $sitemapCandidates = [];
 
         try {
@@ -337,7 +383,10 @@ class SiteAuditor
             $robotsStatus = $response->status();
 
             if ($robotsStatus >= 200 && $robotsStatus < 300) {
-                foreach (preg_split('/\R/', $response->body()) ?: [] as $line) {
+                $robotsBody = $response->body();
+                $robotsGroups = $this->robotsPolicy->parse($robotsBody);
+
+                foreach (preg_split('/\R/', $robotsBody) ?: [] as $line) {
                     if (! preg_match('/^\s*sitemap\s*:\s*(\S+)\s*$/i', $line, $match)) {
                         continue;
                     }
@@ -371,6 +420,7 @@ class SiteAuditor
         $processed = [];
         $validSitemaps = [];
         $pageUrls = [];
+        $sitemapHreflangs = [];
 
         while ($queue !== [] && count($processed) < self::MAX_SITEMAPS && count($pageUrls) < self::MAX_SITEMAP_URLS) {
             $candidate = array_shift($queue);
@@ -460,11 +510,22 @@ class SiteAuditor
                     continue;
                 }
 
-                $pageUrls[$this->urlKey($pageUrl)] = $pageUrl;
+                $pageKey = $this->urlKey($pageUrl);
+                $pageUrls[$pageKey] = $pageUrl;
+
+                foreach ($parsed['hreflangs'][$pageKey] ?? [] as $alternate) {
+                    $alternateKey = strtolower($alternate['lang']).'|'.$this->urlKey($alternate['href']);
+                    $sitemapHreflangs[$pageKey][$alternateKey] = $alternate;
+                }
+
                 if (count($pageUrls) >= self::MAX_SITEMAP_URLS) {
                     break;
                 }
             }
+        }
+
+        foreach ($sitemapHreflangs as $key => $alternates) {
+            $sitemapHreflangs[$key] = array_values($alternates);
         }
 
         if ($validSitemaps === []) {
@@ -475,13 +536,22 @@ class SiteAuditor
             ];
         }
 
+        $robotsRuleCount = 0;
+        foreach ($robotsGroups as $group) {
+            $robotsRuleCount += count($group['rules'] ?? []);
+        }
+
         return [
             'robotsTxt' => [
                 'url' => $robotsUrl,
                 'status' => $robotsStatus,
+                'groups' => count($robotsGroups),
+                'rules' => $robotsRuleCount,
             ],
+            'robotsGroups' => $robotsGroups,
             'sitemaps' => array_values($validSitemaps),
             'sitemapUrlsDiscovered' => count($pageUrls),
+            'sitemapHreflangs' => $sitemapHreflangs,
             'seedUrls' => array_values($pageUrls),
             'issues' => $issues,
         ];
@@ -504,15 +574,71 @@ class SiteAuditor
 
         if ($root === 'sitemapindex') {
             $nodes = $xpath->query('/*[local-name()="sitemapindex"]/*[local-name()="sitemap"]/*[local-name()="loc"]');
-            return ['type' => 'index', 'urls' => $this->sitemapLocations($sitemapUrl, $nodes)];
+            return [
+                'type' => 'index',
+                'urls' => $this->sitemapLocations($sitemapUrl, $nodes),
+                'hreflangs' => [],
+            ];
         }
 
-        if ($root === 'urlset') {
-            $nodes = $xpath->query('/*[local-name()="urlset"]/*[local-name()="url"]/*[local-name()="loc"]');
-            return ['type' => 'urlset', 'urls' => $this->sitemapLocations($sitemapUrl, $nodes)];
+        if ($root !== 'urlset') {
+            return null;
         }
 
-        return null;
+        $urls = [];
+        $hreflangs = [];
+        $urlNodes = $xpath->query('/*[local-name()="urlset"]/*[local-name()="url"]');
+
+        if ($urlNodes instanceof DOMNodeList) {
+            foreach ($urlNodes as $urlNode) {
+                $locNodes = $xpath->query('./*[local-name()="loc"][1]', $urlNode);
+                $locNode = $locNodes instanceof DOMNodeList ? $locNodes->item(0) : null;
+                $pageUrl = $locNode !== null
+                    ? $this->urls->resolve($sitemapUrl, trim($locNode->textContent ?? ''))
+                    : null;
+
+                if ($pageUrl === null) {
+                    continue;
+                }
+
+                $pageKey = $this->urlKey($pageUrl);
+                $urls[$pageKey] = $pageUrl;
+
+                $alternateNodes = $xpath->query(
+                    './*[local-name()="link" and translate(@rel, "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")="alternate" and @hreflang and @href]',
+                    $urlNode,
+                );
+
+                if (! $alternateNodes instanceof DOMNodeList) {
+                    continue;
+                }
+
+                foreach ($alternateNodes as $alternateNode) {
+                    if (! $alternateNode instanceof \DOMElement) {
+                        continue;
+                    }
+
+                    $lang = strtolower(trim($alternateNode->getAttribute('hreflang')));
+                    $href = $this->urls->resolve($sitemapUrl, $alternateNode->getAttribute('href'));
+
+                    if ($lang === '' || $href === null) {
+                        continue;
+                    }
+
+                    $hreflangs[$pageKey][] = [
+                        'lang' => $lang,
+                        'href' => $href,
+                        'source' => 'sitemap',
+                    ];
+                }
+            }
+        }
+
+        return [
+            'type' => 'urlset',
+            'urls' => array_values($urls),
+            'hreflangs' => $hreflangs,
+        ];
     }
 
     private function sitemapLocations(string $baseUrl, DOMNodeList|false $nodes): array
@@ -594,28 +720,271 @@ class SiteAuditor
         throw new \RuntimeException('Too many redirects.');
     }
 
+    private function httpHreflangs(string $baseUrl, ?string $header): array
+    {
+        if ($header === null || trim($header) === '') {
+            return [];
+        }
+
+        preg_match_all(
+            '/<([^>]+)>\s*((?:;\s*[A-Za-z][A-Za-z0-9_-]*\s*=\s*(?:"[^"]*"|[^;,\s]+))+)/',
+            $header,
+            $matches,
+            PREG_SET_ORDER,
+        );
+
+        $alternates = [];
+
+        foreach ($matches as $match) {
+            $params = $match[2] ?? '';
+
+            if (
+                ! preg_match('/;\s*rel\s*=\s*"?([^";]+)"?/i', $params, $rel)
+                || ! in_array('alternate', preg_split('/\s+/', strtolower(trim($rel[1]))) ?: [], true)
+                || ! preg_match('/;\s*hreflang\s*=\s*"?([^";,\s]+)"?/i', $params, $langMatch)
+            ) {
+                continue;
+            }
+
+            $href = $this->urls->resolve($baseUrl, $match[1]);
+            $lang = strtolower(trim($langMatch[1]));
+
+            if ($href !== null && $lang !== '') {
+                $alternates[] = [
+                    'lang' => $lang,
+                    'href' => $href,
+                    'source' => 'http-header',
+                ];
+            }
+        }
+
+        return $alternates;
+    }
+
+    private function checkUncrawledInternalLinks(array $pages, string $crawlOrigin, array $knownRedirects): array
+    {
+        $knownPages = [];
+        foreach ($pages as $page) {
+            try {
+                $knownPages[$this->urlKey($page['url'])] = true;
+            } catch (Throwable) {
+                // Ignore malformed page URLs already represented as fetch failures.
+            }
+        }
+
+        $candidates = [];
+        foreach ($pages as $page) {
+            foreach ($page['links'] ?? [] as $link) {
+                if (! $this->urls->sameOrigin($crawlOrigin, $link)) {
+                    continue;
+                }
+
+                try {
+                    $key = $this->urlKey($link);
+                } catch (Throwable) {
+                    continue;
+                }
+
+                if (isset($knownPages[$key]) || isset($knownRedirects[$key])) {
+                    continue;
+                }
+
+                $candidates[$key] = $link;
+            }
+        }
+
+        $totalCandidates = count($candidates);
+        $candidates = array_slice($candidates, 0, 50, true);
+        $checks = [];
+        $redirectMap = [];
+        $redirects = [];
+        $siteIssues = [];
+
+        if ($totalCandidates > 50) {
+            $siteIssues[] = [
+                'code' => 'link_target_check_limited',
+                'severity' => 'info',
+                'message' => 'Checked 50 of '.$totalCandidates.' uncrawled internal link targets because the independent link-check limit was reached.',
+            ];
+        }
+
+        foreach (array_chunk($candidates, self::CONCURRENCY, true) as $batch) {
+            $urls = array_values($batch);
+            $responses = Http::pool(
+                fn (Pool $pool) => array_map(
+                    fn (string $url) => $pool
+                        ->withHeaders([
+                            'User-Agent' => $this->userAgent(),
+                            'Accept' => 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.2',
+                        ])
+                        ->withOptions(['allow_redirects' => false])
+                        ->connectTimeout(3)
+                        ->timeout(self::RESOURCE_TIMEOUT)
+                        ->get($url),
+                    $urls,
+                ),
+                concurrency: self::CONCURRENCY,
+            );
+
+            foreach ($urls as $index => $requestedUrl) {
+                $response = $responses[$index] ?? null;
+                $requestedKey = $this->urlKey($requestedUrl);
+
+                if ($response instanceof Throwable || ! $response instanceof Response) {
+                    $checks[$requestedKey] = [
+                        'url' => $requestedUrl,
+                        'status' => 0,
+                        'finalUrl' => $requestedUrl,
+                        'chain' => [],
+                        'error' => $response instanceof Throwable ? $response->getMessage() : 'Request failed.',
+                    ];
+                    continue;
+                }
+
+                try {
+                    [$finalResponse, $finalUrl, $chain] = $this->followRedirects(
+                        $requestedUrl,
+                        $response,
+                        'text/html,application/xhtml+xml;q=0.9,*/*;q=0.2',
+                        self::RESOURCE_TIMEOUT,
+                    );
+
+                    $checks[$requestedKey] = [
+                        'url' => $requestedUrl,
+                        'status' => $finalResponse->status(),
+                        'finalUrl' => $finalUrl,
+                        'chain' => $chain,
+                        'error' => null,
+                    ];
+
+                    if ($chain !== []) {
+                        $redirects[$requestedKey] = [
+                            'requestedUrl' => $requestedUrl,
+                            'finalUrl' => $finalUrl,
+                            'chain' => $chain,
+                        ];
+
+                        foreach ($chain as $hop) {
+                            $redirectMap[$this->urlKey($hop['from'])] = [
+                                'finalUrl' => $finalUrl,
+                                'chain' => $chain,
+                            ];
+                        }
+                    }
+                } catch (Throwable $exception) {
+                    $checks[$requestedKey] = [
+                        'url' => $requestedUrl,
+                        'status' => 0,
+                        'finalUrl' => $requestedUrl,
+                        'chain' => [],
+                        'error' => $exception->getMessage(),
+                    ];
+                }
+            }
+        }
+
+        return compact('checks', 'redirectMap', 'redirects', 'siteIssues');
+    }
+
+    private function attachSocialImageDiagnostics(array &$pages): int
+    {
+        $urls = [];
+
+        foreach ($pages as $page) {
+            foreach ([$page['openGraph']['image'] ?? null, $page['twitter']['image'] ?? null] as $url) {
+                if (is_string($url) && $url !== '') {
+                    $urls[$url] = $url;
+                }
+            }
+        }
+
+        $urls = array_slice(array_values($urls), 0, 30);
+        $results = $this->socialImages->inspect($urls);
+
+        foreach ($pages as &$page) {
+            $page['socialImages'] = [
+                'openGraph' => null,
+                'twitter' => null,
+            ];
+
+            foreach ([
+                'openGraph' => $page['openGraph']['image'] ?? null,
+                'twitter' => $page['twitter']['image'] ?? null,
+            ] as $kind => $url) {
+                if (! is_string($url) || $url === '' || ! isset($results[$url])) {
+                    continue;
+                }
+
+                $result = $results[$url];
+                $page['socialImages'][$kind] = $result;
+                $label = $kind === 'openGraph' ? 'Open Graph' : 'Twitter/X';
+
+                if (($result['status'] ?? 0) === 0) {
+                    $this->issue(
+                        $page,
+                        'social_image_unreachable',
+                        'warning',
+                        $label.' image could not be fetched: '.$url.'.',
+                    );
+                } elseif (($result['status'] ?? 0) >= 400) {
+                    $this->issue(
+                        $page,
+                        'social_image_http_error',
+                        'warning',
+                        $label.' image returns HTTP '.$result['status'].': '.$url.'.',
+                    );
+                } elseif (($result['status'] ?? 0) >= 300) {
+                    $this->issue(
+                        $page,
+                        'social_image_redirect',
+                        'info',
+                        $label.' image URL redirects (HTTP '.$result['status'].'): '.$url.'.',
+                    );
+                } elseif (! str_starts_with((string) ($result['contentType'] ?? ''), 'image/')) {
+                    $this->issue(
+                        $page,
+                        'social_image_content_type',
+                        'warning',
+                        $label.' image URL does not return an image content type: '.$url.'.',
+                    );
+                }
+            }
+        }
+        unset($page);
+
+        return count($results);
+    }
+
     private function addCrossPageChecks(
         array &$pages,
         string $crawlOrigin,
         array $redirectMap,
         array $sitemapUrls,
+        array $linkTargetChecks = [],
     ): array {
         $byUrl = [];
         $titles = [];
         $descriptions = [];
         $contentHashes = [];
         $incoming = [];
+        $contextualIncoming = [];
+        $adjacency = [];
         $siteIssues = [];
         $internalLinksToRedirects = 0;
         $mixedSchemeLinks = 0;
         $duplicateContentGroups = 0;
         $orphanCandidates = 0;
+        $contextualLinks = 0;
+        $maxCrawlDepth = 0;
 
         foreach ($pages as $index => &$page) {
             $page['internalLinks'] = [
                 'incoming' => 0,
                 'outgoing' => 0,
+                'contextualIncoming' => 0,
+                'contextualOutgoing' => 0,
                 'redirecting' => 0,
+                'crawlDepth' => null,
             ];
             $page['inSitemap'] = false;
 
@@ -623,6 +992,8 @@ class SiteAuditor
                 $key = $this->urlKey($page['url']);
                 $byUrl[$key] = $index;
                 $incoming[$key] = 0;
+                $contextualIncoming[$key] = 0;
+                $adjacency[$key] = [];
             } catch (Throwable) {
                 continue;
             }
@@ -705,9 +1076,29 @@ class SiteAuditor
 
         foreach ($pages as $index => &$page) {
             $seenOutgoing = [];
+            $seenContextualOutgoing = [];
             $redirectLinks = [];
             $mixedScheme = [];
             $broken = [];
+            $contextualTargets = [];
+
+            foreach ($page['linkDetails'] ?? [] as $detail) {
+                if (($detail['location'] ?? '') !== 'contextual') {
+                    continue;
+                }
+
+                try {
+                    $contextualTargets[$this->urlKey($detail['href'])] = true;
+                } catch (Throwable) {
+                    // Ignore malformed link detail.
+                }
+            }
+
+            try {
+                $sourceKey = $this->urlKey($page['url']);
+            } catch (Throwable) {
+                $sourceKey = null;
+            }
 
             foreach ($page['links'] as $link) {
                 if ($this->urls->sameHost($crawlOrigin, $link) && ! $this->urls->sameOrigin($crawlOrigin, $link)) {
@@ -740,13 +1131,30 @@ class SiteAuditor
                     $seenOutgoing[$effectiveKey] = true;
                     $page['internalLinks']['outgoing']++;
 
+                    if ($sourceKey !== null && isset($byUrl[$effectiveKey])) {
+                        $adjacency[$sourceKey][$effectiveKey] = true;
+                    }
+
                     if (isset($byUrl[$effectiveKey])) {
                         $incoming[$effectiveKey] = ($incoming[$effectiveKey] ?? 0) + 1;
                     }
                 }
 
+                $isContextual = isset($contextualTargets[$targetKey]) || isset($contextualTargets[$effectiveKey]);
+                if ($isContextual && ! isset($seenContextualOutgoing[$effectiveKey])) {
+                    $seenContextualOutgoing[$effectiveKey] = true;
+                    $page['internalLinks']['contextualOutgoing']++;
+                    $contextualLinks++;
+
+                    if (isset($byUrl[$effectiveKey])) {
+                        $contextualIncoming[$effectiveKey] = ($contextualIncoming[$effectiveKey] ?? 0) + 1;
+                    }
+                }
+
                 if (isset($byUrl[$effectiveKey]) && $pages[$byUrl[$effectiveKey]]['status'] >= 400) {
                     $broken[$pages[$byUrl[$effectiveKey]]['url']] = true;
+                } elseif (isset($linkTargetChecks[$targetKey]) && ($linkTargetChecks[$targetKey]['status'] ?? 0) >= 400) {
+                    $broken[$link] = true;
                 }
             }
 
@@ -796,7 +1204,7 @@ class SiteAuditor
                     $page,
                     'broken_internal_link',
                     'error',
-                    count($broken).' crawled internal link(s) point to HTTP errors; first: '.$first.'.',
+                    count($broken).' checked internal link(s) point to HTTP errors; first: '.$first.'.',
                 );
             }
         }
@@ -804,6 +1212,38 @@ class SiteAuditor
 
         foreach ($byUrl as $key => $index) {
             $pages[$index]['internalLinks']['incoming'] = $incoming[$key] ?? 0;
+            $pages[$index]['internalLinks']['contextualIncoming'] = $contextualIncoming[$key] ?? 0;
+        }
+
+        if ($pages !== []) {
+            try {
+                $startKey = $this->urlKey($pages[0]['url']);
+                $depths = [$startKey => 0];
+                $queue = [$startKey];
+
+                while ($queue !== []) {
+                    $current = array_shift($queue);
+                    $depth = $depths[$current];
+
+                    foreach (array_keys($adjacency[$current] ?? []) as $target) {
+                        if (isset($depths[$target])) {
+                            continue;
+                        }
+
+                        $depths[$target] = $depth + 1;
+                        $maxCrawlDepth = max($maxCrawlDepth, $depth + 1);
+                        $queue[] = $target;
+                    }
+                }
+
+                foreach ($depths as $key => $depth) {
+                    if (isset($byUrl[$key])) {
+                        $pages[$byUrl[$key]]['internalLinks']['crawlDepth'] = $depth;
+                    }
+                }
+            } catch (Throwable) {
+                // Crawl depth is diagnostic only; leave null if the start URL cannot be normalized.
+            }
         }
 
         foreach ($pages as $index => $page) {
@@ -1067,6 +1507,8 @@ class SiteAuditor
             'duplicateContentGroups' => $duplicateContentGroups,
             'internalLinksToRedirects' => $internalLinksToRedirects,
             'mixedSchemeLinks' => $mixedSchemeLinks,
+            'maxCrawlDepth' => $maxCrawlDepth,
+            'contextualLinks' => $contextualLinks,
         ];
     }
 
@@ -1198,6 +1640,11 @@ class SiteAuditor
             'lang' => null,
             'robots' => null,
             'xRobotsTag' => null,
+            'robotsTxt' => [
+                'allowed' => true,
+                'matchedDirective' => null,
+                'matchedRule' => null,
+            ],
             'hreflangs' => [],
             'headings' => [
                 'h1Count' => 0,
@@ -1213,6 +1660,7 @@ class SiteAuditor
             'detectedLang' => null,
             'languageConfidence' => 0.0,
             'contentHash' => null,
+            'contentHashStatus' => 'not generated (fetch failed)',
             'openGraph' => [
                 'title' => null,
                 'description' => null,
@@ -1227,9 +1675,14 @@ class SiteAuditor
             ],
             'structuredData' => [
                 'scripts' => 0,
-                'valid' => 0,
-                'invalid' => 0,
+                'parseable' => 0,
+                'invalidSyntax' => 0,
                 'types' => [],
+                'semanticIssues' => [],
+            ],
+            'socialImages' => [
+                'openGraph' => null,
+                'twitter' => null,
             ],
             'issues' => [[
                 'code' => 'fetch_failed',
@@ -1237,6 +1690,7 @@ class SiteAuditor
                 'message' => $message,
             ]],
             'links' => [],
+            'linkDetails' => [],
         ];
     }
 
