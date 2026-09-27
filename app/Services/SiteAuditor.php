@@ -373,6 +373,7 @@ class SiteAuditor
         $issues = [];
         $robotsUrl = $origin.'/robots.txt';
         $robotsStatus = 0;
+        $robotsGroups = [];
         $sitemapCandidates = [];
 
         try {
@@ -380,7 +381,10 @@ class SiteAuditor
             $robotsStatus = $response->status();
 
             if ($robotsStatus >= 200 && $robotsStatus < 300) {
-                foreach (preg_split('/\R/', $response->body()) ?: [] as $line) {
+                $robotsBody = $response->body();
+                $robotsGroups = $this->robotsPolicy->parse($robotsBody);
+
+                foreach (preg_split('/\R/', $robotsBody) ?: [] as $line) {
                     if (! preg_match('/^\s*sitemap\s*:\s*(\S+)\s*$/i', $line, $match)) {
                         continue;
                     }
@@ -414,6 +418,7 @@ class SiteAuditor
         $processed = [];
         $validSitemaps = [];
         $pageUrls = [];
+        $sitemapHreflangs = [];
 
         while ($queue !== [] && count($processed) < self::MAX_SITEMAPS && count($pageUrls) < self::MAX_SITEMAP_URLS) {
             $candidate = array_shift($queue);
@@ -503,11 +508,22 @@ class SiteAuditor
                     continue;
                 }
 
-                $pageUrls[$this->urlKey($pageUrl)] = $pageUrl;
+                $pageKey = $this->urlKey($pageUrl);
+                $pageUrls[$pageKey] = $pageUrl;
+
+                foreach ($parsed['hreflangs'][$pageKey] ?? [] as $alternate) {
+                    $alternateKey = strtolower($alternate['lang']).'|'.$this->urlKey($alternate['href']);
+                    $sitemapHreflangs[$pageKey][$alternateKey] = $alternate;
+                }
+
                 if (count($pageUrls) >= self::MAX_SITEMAP_URLS) {
                     break;
                 }
             }
+        }
+
+        foreach ($sitemapHreflangs as $key => $alternates) {
+            $sitemapHreflangs[$key] = array_values($alternates);
         }
 
         if ($validSitemaps === []) {
@@ -518,13 +534,22 @@ class SiteAuditor
             ];
         }
 
+        $robotsRuleCount = 0;
+        foreach ($robotsGroups as $group) {
+            $robotsRuleCount += count($group['rules'] ?? []);
+        }
+
         return [
             'robotsTxt' => [
                 'url' => $robotsUrl,
                 'status' => $robotsStatus,
+                'groups' => count($robotsGroups),
+                'rules' => $robotsRuleCount,
             ],
+            'robotsGroups' => $robotsGroups,
             'sitemaps' => array_values($validSitemaps),
             'sitemapUrlsDiscovered' => count($pageUrls),
+            'sitemapHreflangs' => $sitemapHreflangs,
             'seedUrls' => array_values($pageUrls),
             'issues' => $issues,
         ];
@@ -547,15 +572,71 @@ class SiteAuditor
 
         if ($root === 'sitemapindex') {
             $nodes = $xpath->query('/*[local-name()="sitemapindex"]/*[local-name()="sitemap"]/*[local-name()="loc"]');
-            return ['type' => 'index', 'urls' => $this->sitemapLocations($sitemapUrl, $nodes)];
+            return [
+                'type' => 'index',
+                'urls' => $this->sitemapLocations($sitemapUrl, $nodes),
+                'hreflangs' => [],
+            ];
         }
 
-        if ($root === 'urlset') {
-            $nodes = $xpath->query('/*[local-name()="urlset"]/*[local-name()="url"]/*[local-name()="loc"]');
-            return ['type' => 'urlset', 'urls' => $this->sitemapLocations($sitemapUrl, $nodes)];
+        if ($root !== 'urlset') {
+            return null;
         }
 
-        return null;
+        $urls = [];
+        $hreflangs = [];
+        $urlNodes = $xpath->query('/*[local-name()="urlset"]/*[local-name()="url"]');
+
+        if ($urlNodes instanceof DOMNodeList) {
+            foreach ($urlNodes as $urlNode) {
+                $locNodes = $xpath->query('./*[local-name()="loc"][1]', $urlNode);
+                $locNode = $locNodes instanceof DOMNodeList ? $locNodes->item(0) : null;
+                $pageUrl = $locNode !== null
+                    ? $this->urls->resolve($sitemapUrl, trim($locNode->textContent ?? ''))
+                    : null;
+
+                if ($pageUrl === null) {
+                    continue;
+                }
+
+                $pageKey = $this->urlKey($pageUrl);
+                $urls[$pageKey] = $pageUrl;
+
+                $alternateNodes = $xpath->query(
+                    './*[local-name()="link" and translate(@rel, "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")="alternate" and @hreflang and @href]',
+                    $urlNode,
+                );
+
+                if (! $alternateNodes instanceof DOMNodeList) {
+                    continue;
+                }
+
+                foreach ($alternateNodes as $alternateNode) {
+                    if (! $alternateNode instanceof \DOMElement) {
+                        continue;
+                    }
+
+                    $lang = strtolower(trim($alternateNode->getAttribute('hreflang')));
+                    $href = $this->urls->resolve($sitemapUrl, $alternateNode->getAttribute('href'));
+
+                    if ($lang === '' || $href === null) {
+                        continue;
+                    }
+
+                    $hreflangs[$pageKey][] = [
+                        'lang' => $lang,
+                        'href' => $href,
+                        'source' => 'sitemap',
+                    ];
+                }
+            }
+        }
+
+        return [
+            'type' => 'urlset',
+            'urls' => array_values($urls),
+            'hreflangs' => $hreflangs,
+        ];
     }
 
     private function sitemapLocations(string $baseUrl, DOMNodeList|false $nodes): array
