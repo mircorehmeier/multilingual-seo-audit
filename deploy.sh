@@ -69,6 +69,11 @@ echo "==> Caching production configuration and views"
 "$PHP_BIN" artisan config:cache
 "$PHP_BIN" artisan view:cache
 
-printf 'ok - laravel\n' > public/deploy-status.txt
+COMMIT_SHA="unknown"
+if command -v git >/dev/null 2>&1 && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    COMMIT_SHA="$(git rev-parse --short HEAD)"
+fi
+
+printf 'ok - laravel 0.4.0\ncommit: %s\n' "$COMMIT_SHA" > public/deploy-status.txt
 
 echo "==> Laravel deploy complete"
