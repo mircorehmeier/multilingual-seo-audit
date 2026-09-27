@@ -245,6 +245,15 @@ class SiteAuditor
 
         $site['issues'] = array_merge($site['issues'], $crossPage['siteIssues']);
 
+        $indexablePages = 0;
+        foreach ($pages as &$page) {
+            $page['indexability'] = $this->indexability($page);
+            if ($page['indexability']['status'] === 'indexable') {
+                $indexablePages++;
+            }
+        }
+        unset($page);
+
         $counts = ['error' => 0, 'warning' => 0, 'info' => 0];
         $languages = [];
         $hreflangCodes = [];
@@ -300,6 +309,7 @@ class SiteAuditor
                 'languages' => $languageList,
                 'hreflangCodes' => $hreflangList,
                 'noindexPages' => $noindexPages,
+                'indexablePages' => $indexablePages,
                 'sitemapUrls' => $site['sitemapUrlsDiscovered'],
                 'siteIssues' => count($site['issues']),
                 'redirects' => count($redirectedRequests),
@@ -1106,6 +1116,45 @@ class SiteAuditor
     private function languageBase(string $code): string
     {
         return strtolower(explode('-', $code, 2)[0]);
+    }
+
+    private function indexability(array $page): array
+    {
+        $status = (int) ($page['status'] ?? 0);
+
+        if ($status === 0) {
+            return ['status' => 'unknown', 'reason' => 'Page could not be fetched.'];
+        }
+
+        if ($status < 200 || $status >= 300) {
+            return ['status' => 'not-indexable', 'reason' => 'HTTP '.$status.'.'];
+        }
+
+        if ($this->directiveContains($page['robots'] ?? null, 'noindex')) {
+            return ['status' => 'not-indexable', 'reason' => 'Meta robots contains noindex.'];
+        }
+
+        if ($this->directiveContains($page['xRobotsTag'] ?? null, 'noindex')) {
+            return ['status' => 'not-indexable', 'reason' => 'X-Robots-Tag contains noindex.'];
+        }
+
+        if (! empty($page['canonical'])) {
+            try {
+                if ($this->urlKey($page['canonical']) !== $this->urlKey($page['url'])) {
+                    return [
+                        'status' => 'canonicalized',
+                        'reason' => 'Canonical points to '.$page['canonical'].'.',
+                    ];
+                }
+            } catch (Throwable) {
+                return ['status' => 'unknown', 'reason' => 'Canonical URL could not be normalized.'];
+            }
+        }
+
+        return [
+            'status' => 'indexable',
+            'reason' => 'HTTP 2xx with no noindex directive and a self-referencing or absent canonical.',
+        ];
     }
 
     private function pageIsNoindex(array $page): bool
