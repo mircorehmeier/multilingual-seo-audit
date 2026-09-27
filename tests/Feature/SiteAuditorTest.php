@@ -153,7 +153,8 @@ HTML;
         }
 
         $this->assertContains('internal_link_to_redirect', $issuesByUrl['https://1.1.1.1/en/']);
-        $this->assertContains('redirect_chain', $issuesByUrl['https://1.1.1.1/about/']);
+        $this->assertContains('internal_link_redirect_chain', $issuesByUrl['https://1.1.1.1/en/']);
+        $this->assertNotEmpty($result['site']['redirects']);
         $this->assertContains('content_duplicate', $issuesByUrl['https://1.1.1.1/about/']);
         $this->assertContains('content_duplicate', $issuesByUrl['https://1.1.1.1/copy/']);
         $this->assertContains('orphan_candidate', $issuesByUrl['https://1.1.1.1/orphan/']);
