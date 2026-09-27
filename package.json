@@ -1,0 +1,37 @@
+{
+  "name": "multilingual-seo-audit",
+  "version": "0.1.0",
+  "description": "A lightweight multilingual technical SEO auditor for canonical, hreflang, metadata, social cards and structured data.",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "keywords": [
+    "seo",
+    "hreflang",
+    "multilingual-seo",
+    "canonical",
+    "technical-seo",
+    "open-graph",
+    "structured-data"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "cheerio": "^1.2.0",
+    "express": "^5.2.1"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^22.20.4",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.1"
+  }
+}
