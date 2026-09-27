@@ -13,10 +13,15 @@ class HtmlAuditor
     private const UPPER = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
     private const LOWER = 'abcdefghijklmnopqrstuvwxyz';
 
+    private const ISO_639_1 = 'aa ab ae af ak am an ar as av ay az ba be bg bh bi bm bn bo br bs ca ce ch co cr cs cu cv cy da de dv dz ee el en eo es et eu fa ff fi fj fo fr fy ga gd gl gn gu gv ha he hi ho hr ht hu hy hz ia id ie ig ii ik io is it iu ja jv ka kg ki kj kk kl km kn ko kr ks ku kv kw ky la lb lg li ln lo lt lu lv mg mh mi mk ml mn mr ms mt my na nb nd ne ng nl nn no nr nv ny oc oj om or os pa pi pl ps pt qu rm rn ro ru rw sa sc sd se sg si sk sl sm sn so sq sr ss st su sv sw ta te tg th ti tk tl tn to tr ts tt tw ty ug uk ur uz ve vi vo wa wo xh yi yo za zh zu';
+    private const ISO_3166_1_ALPHA2 = 'ad ae af ag ai al am ao aq ar as at au aw ax az ba bb bd be bf bg bh bi bj bl bm bn bo bq br bs bt bv bw by bz ca cc cd cf cg ch ci ck cl cm cn co cr cu cv cw cx cy cz de dj dk dm do dz ec ee eg eh er es et fi fj fk fm fo fr ga gb gd ge gf gg gh gi gl gm gn gp gq gr gs gt gu gw gy hk hm hn hr ht hu id ie il im in io iq ir is it je jm jo jp ke kg kh ki km kn kp kr kw ky kz la lb lc li lk lr ls lt lu lv ly ma mc md me mf mg mh mk ml mm mn mo mp mq mr ms mt mu mv mw mx my mz na nc ne nf ng ni nl no np nr nu nz om pa pe pf pg ph pk pl pm pn pr ps pt pw py qa re ro rs ru rw sa sb sc sd se sg sh si sj sk sl sm sn so sr ss st sv sx sy sz tc td tf tg th tj tk tl tm tn to tr tt tv tw tz ua ug um us uy uz va vc ve vg vi vn vu wf ws ye yt za zm zw';
+
     private const SKIP_EXTENSION = '/\.(?:jpg|jpeg|png|gif|webp|svg|avif|ico|pdf|zip|rar|7z|gz|mp4|mp3|wav|mov|avi|webm|css|js|mjs|xml|json|txt|woff2?|ttf|eot)(?:$|\?)/i';
 
-    public function __construct(private readonly UrlGuard $urls)
-    {
+    public function __construct(
+        private readonly UrlGuard $urls,
+        private readonly LanguageDetector $languageDetector,
+    ) {
     }
 
     public function parse(string $url, int $status, string $contentType, string $html): array
@@ -121,6 +126,12 @@ class HtmlAuditor
             }
         }
 
+        $visibleText = $this->visibleText($xpath);
+        $wordCount = $this->countWords($visibleText);
+        $languageDetection = $this->languageDetector->detect($visibleText);
+        $contentHash = $wordCount >= 80
+            ? hash('sha256', $this->normalizeForHash($visibleText))
+            : null;
         $structuredData = $this->structuredData($xpath);
 
         $page = [
@@ -140,7 +151,10 @@ class HtmlAuditor
                 'h2Count' => $h2Nodes instanceof DOMNodeList ? $h2Nodes->length : 0,
             ],
             'images' => $images,
-            'wordCount' => $this->wordCount($xpath),
+            'wordCount' => $wordCount,
+            'detectedLang' => $languageDetection['lang'],
+            'languageConfidence' => $languageDetection['confidence'],
+            'contentHash' => $contentHash,
             'openGraph' => [
                 'title' => $this->meta($xpath, 'property', 'og:title'),
                 'description' => $this->meta($xpath, 'property', 'og:description'),
@@ -203,6 +217,16 @@ class HtmlAuditor
 
         if ($page['lang'] === null) {
             $this->issue($page, 'html_lang_missing', 'warning', 'Missing html lang attribute.');
+        } elseif (
+            $page['detectedLang'] !== null
+            && $this->languageBase($page['lang']) !== $page['detectedLang']
+        ) {
+            $this->issue(
+                $page,
+                'html_lang_content_mismatch',
+                'warning',
+                'HTML lang="'.$page['lang'].'" but the visible main content looks like '.$page['detectedLang'].' (confidence '.round($page['languageConfidence'] * 100).'%).',
+            );
         }
 
         if ($this->directiveContains($page['robots'], 'noindex')) {
@@ -266,8 +290,8 @@ class HtmlAuditor
 
                 $seen[$entry['lang']] = true;
 
-                if (! $this->validHreflangShape($entry['lang'])) {
-                    $this->issue($page, 'hreflang_code_suspicious', 'warning', 'Suspicious hreflang code: '.$entry['lang'].'.');
+                if (! $this->validHreflangCode($entry['lang'])) {
+                    $this->issue($page, 'hreflang_code_suspicious', 'warning', 'Unsupported or suspicious hreflang code: '.$entry['lang'].'.');
                 }
             }
 
@@ -286,13 +310,42 @@ class HtmlAuditor
         }
     }
 
-    private function validHreflangShape(string $code): bool
+    private function validHreflangCode(string $code): bool
     {
+        $code = strtolower($code);
+
         if ($code === 'x-default') {
             return true;
         }
 
-        return preg_match('/^[a-z]{2}(?:-(?:[a-z]{2}|hans|hant)(?:-[a-z]{2})?)?$/i', $code) === 1;
+        $parts = explode('-', $code);
+        $language = $parts[0] ?? '';
+
+        if (! $this->listedCode(self::ISO_639_1, $language)) {
+            return false;
+        }
+
+        if (count($parts) === 1) {
+            return true;
+        }
+
+        if (count($parts) === 2) {
+            if ($language === 'zh' && in_array($parts[1], ['hans', 'hant'], true)) {
+                return true;
+            }
+
+            return $this->listedCode(self::ISO_3166_1_ALPHA2, $parts[1]);
+        }
+
+        return count($parts) === 3
+            && $language === 'zh'
+            && in_array($parts[1], ['hans', 'hant'], true)
+            && $this->listedCode(self::ISO_3166_1_ALPHA2, $parts[2]);
+    }
+
+    private function listedCode(string $list, string $code): bool
+    {
+        return str_contains(' '.$list.' ', ' '.strtolower($code).' ');
     }
 
     private function languageBase(string $code): string
@@ -311,12 +364,23 @@ class HtmlAuditor
         return in_array(strtolower($needle), $tokens, true);
     }
 
-    private function wordCount(DOMXPath $xpath): int
+    private function visibleText(DOMXPath $xpath): string
     {
-        $nodes = $xpath->query('//body//text()[not(ancestor::script) and not(ancestor::style) and not(ancestor::noscript) and not(ancestor::svg)]');
+        $root = $this->first($xpath, '//main[1]')
+            ?? $this->first($xpath, '//article[1]')
+            ?? $this->first($xpath, '//body[1]');
+
+        if ($root === null) {
+            return '';
+        }
+
+        $nodes = $xpath->query(
+            './/text()[not(ancestor::script) and not(ancestor::style) and not(ancestor::noscript) and not(ancestor::svg) and not(ancestor::nav) and not(ancestor::footer)]',
+            $root,
+        );
 
         if (! $nodes instanceof DOMNodeList) {
-            return 0;
+            return '';
         }
 
         $parts = [];
@@ -327,7 +391,11 @@ class HtmlAuditor
             }
         }
 
-        $text = trim(implode(' ', $parts));
+        return trim(implode(' ', $parts));
+    }
+
+    private function countWords(string $text): int
+    {
         if ($text === '') {
             return 0;
         }
@@ -335,6 +403,14 @@ class HtmlAuditor
         preg_match_all('/[\p{L}\p{N}]+(?:[\'’\-][\p{L}\p{N}]+)*/u', $text, $matches);
 
         return count($matches[0] ?? []);
+    }
+
+    private function normalizeForHash(string $text): string
+    {
+        $text = mb_strtolower($text);
+        $text = (string) preg_replace('/[^\p{L}\p{N}]+/u', ' ', $text);
+
+        return trim((string) preg_replace('/\s+/u', ' ', $text));
     }
 
     private function structuredData(DOMXPath $xpath): array
