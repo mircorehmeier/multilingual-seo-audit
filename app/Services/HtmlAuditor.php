@@ -536,7 +536,29 @@ class HtmlAuditor
 
     private function nodeText(?DOMNode $node): string
     {
-        return $node ? $this->clean($node->textContent ?? '') : '';
+        if ($node === null) {
+            return '';
+        }
+
+        return $this->clean($this->nodeTextWithBreaks($node));
+    }
+
+    private function nodeTextWithBreaks(DOMNode $node): string
+    {
+        if ($node->nodeType === XML_TEXT_NODE || $node->nodeType === XML_CDATA_SECTION_NODE) {
+            return $node->textContent ?? '';
+        }
+
+        if ($node instanceof DOMElement && strtolower($node->tagName) === 'br') {
+            return ' ';
+        }
+
+        $text = '';
+        foreach ($node->childNodes as $child) {
+            $text .= $this->nodeTextWithBreaks($child);
+        }
+
+        return $text;
     }
 
     private function clean(string $value): string
