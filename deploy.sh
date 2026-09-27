@@ -9,7 +9,7 @@ echo "==> Working directory: $(pwd)"
 
 PHP_BIN=""
 
-for VERSION in 8.4 8.3 8.5; do
+for VERSION in 8.3 8.4 8.5; do
     CANDIDATE="/opt/plesk/php/$VERSION/bin/php"
     if [ -x "$CANDIDATE" ]; then
         PHP_BIN="$CANDIDATE"
