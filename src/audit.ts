@@ -161,7 +161,7 @@ async function safeFetch(input: string, init: RequestInit = {}, redirectLimit = 
         'accept': 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.2',
         ...(init.headers ?? {}),
       },
-      signal: AbortSignal.timeout(12_000),
+      signal: AbortSignal.timeout(8_000),
     });
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       const location = response.headers.get('location');
@@ -373,23 +373,55 @@ export async function auditSite(startInput: string, requestedMaxPages = 25): Pro
   const visited = new Set<string>();
   const pages: PageAudit[] = [];
 
-  while (queue.length > 0 && pages.length < maxPages) {
-    const url = queue.shift()!;
-    if (visited.has(url)) continue;
-    visited.add(url);
+  const concurrency = 6;
 
-    try {
-      const response = await safeFetch(url);
-      const finalUrl = normalizeUrl(response.url || url);
-      if (pages.length === 0) crawlOrigin = new URL(finalUrl).origin;
-      const contentType = response.headers.get('content-type') ?? '';
-      if (!contentType.toLowerCase().includes('text/html') && !contentType.toLowerCase().includes('application/xhtml+xml')) {
-        continue;
+  while (queue.length > 0 && pages.length < maxPages) {
+    const batch: string[] = [];
+    while (queue.length > 0 && batch.length < concurrency && pages.length + batch.length < maxPages) {
+      const candidate = queue.shift()!;
+      if (visited.has(candidate)) continue;
+      visited.add(candidate);
+      batch.push(candidate);
+    }
+    if (batch.length === 0) continue;
+
+    const batchResults = await Promise.all(batch.map(async (url): Promise<PageAudit | null> => {
+      try {
+        const response = await safeFetch(url);
+        const finalUrl = normalizeUrl(response.url || url);
+        const contentType = response.headers.get('content-type') ?? '';
+        if (!contentType.toLowerCase().includes('text/html') && !contentType.toLowerCase().includes('application/xhtml+xml')) {
+          return null;
+        }
+        const html = await response.text();
+        const page = parseHtml(finalUrl, response.status, contentType, html);
+        if (response.status >= 400) addIssue(page, 'http_error', 'error', `HTTP ${response.status}.`);
+        else if (response.status >= 300) addIssue(page, 'http_redirect', 'warning', `HTTP ${response.status}.`);
+        return page;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Request failed.';
+        return {
+          url,
+          status: 0,
+          contentType: '',
+          title: '',
+          description: '',
+          canonical: null,
+          lang: null,
+          robots: null,
+          hreflangs: [],
+          openGraph: { title: null, description: null, image: null, url: null },
+          twitter: { card: null, title: null, description: null, image: null },
+          structuredData: { scripts: 0, valid: 0, invalid: 0, types: [] },
+          issues: [{ code: 'fetch_failed', severity: 'error', message }],
+          links: [],
+        };
       }
-      const html = await response.text();
-      const page = parseHtml(finalUrl, response.status, contentType, html);
-      if (response.status >= 400) addIssue(page, 'http_error', 'error', `HTTP ${response.status}.`);
-      else if (response.status >= 300) addIssue(page, 'http_redirect', 'warning', `HTTP ${response.status}.`);
+    }));
+
+    for (const page of batchResults) {
+      if (!page || pages.length >= maxPages) continue;
+      if (pages.length === 0) crawlOrigin = new URL(page.url).origin;
       pages.push(page);
 
       for (const link of page.links) {
@@ -402,24 +434,6 @@ export async function auditSite(startInput: string, requestedMaxPages = 25): Pro
           // Ignore invalid links.
         }
       }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Request failed.';
-      pages.push({
-        url,
-        status: 0,
-        contentType: '',
-        title: '',
-        description: '',
-        canonical: null,
-        lang: null,
-        robots: null,
-        hreflangs: [],
-        openGraph: { title: null, description: null, image: null, url: null },
-        twitter: { card: null, title: null, description: null, image: null },
-        structuredData: { scripts: 0, valid: 0, invalid: 0, types: [] },
-        issues: [{ code: 'fetch_failed', severity: 'error', message }],
-        links: [],
-      });
     }
   }
 
