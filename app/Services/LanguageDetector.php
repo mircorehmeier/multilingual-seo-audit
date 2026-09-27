@@ -44,7 +44,7 @@ class LanguageDetector
         $total = array_sum($scores);
         $confidence = $total > 0 ? $top / $total : 0.0;
 
-        if ($top < 8 || ($second > 0 && $top < $second * 1.6) || $confidence < 0.42) {
+        if ($top < 8 || ($second > 0 && $top < $second * 1.6) || $confidence < 0.39) {
             return ['lang' => null, 'confidence' => round($confidence, 3), 'scores' => $scores];
         }
 
