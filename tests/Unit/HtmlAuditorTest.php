@@ -117,4 +117,35 @@ HTML;
         $this->assertNotContains('content_thin', $codes);
     }
 
+
+    public function test_link_heavy_main_content_still_gets_a_duplicate_content_hash(): void
+    {
+        $auditor = new HtmlAuditor(new UrlGuard(), new LanguageDetector());
+        $cardCopy = str_repeat(
+            'Detailed project information about software publishing technology strategy audiences growth and useful digital products. ',
+            10,
+        );
+
+        $html = <<<HTML
+<!doctype html>
+<html lang="en">
+<head>
+<title>Portfolio projects and digital products</title>
+<meta name="description" content="A portfolio of digital products, publishing projects and technology work with useful details for visitors.">
+<link rel="canonical" href="https://example.com/portfolio/">
+<meta property="og:title" content="Portfolio projects and digital products">
+<meta property="og:description" content="Portfolio description">
+<meta property="og:image" content="https://example.com/image.jpg">
+<meta name="twitter:card" content="summary_large_image">
+</head>
+<body><main><h1>Portfolio</h1><a href="/project/">{$cardCopy}</a></main></body>
+</html>
+HTML;
+
+        $page = $auditor->parse('https://example.com/portfolio/', 200, 'text/html', $html);
+
+        $this->assertGreaterThanOrEqual(80, $page['wordCount']);
+        $this->assertNotNull($page['contentHash']);
+    }
+
 }
