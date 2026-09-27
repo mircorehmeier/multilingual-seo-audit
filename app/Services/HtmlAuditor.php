@@ -129,8 +129,9 @@ class HtmlAuditor
         $visibleText = $this->visibleText($xpath);
         $wordCount = $this->countWords($visibleText);
         $languageDetection = $this->languageDetector->detect($visibleText);
-        $contentHash = $wordCount >= 80
-            ? hash('sha256', $this->normalizeForHash($visibleText))
+        $fingerprintText = $this->fingerprintText($xpath);
+        $contentHash = $this->countWords($fingerprintText) >= 80
+            ? hash('sha256', $this->normalizeForHash($fingerprintText))
             : null;
         $structuredData = $this->structuredData($xpath);
 
@@ -376,6 +377,36 @@ class HtmlAuditor
 
         $nodes = $xpath->query(
             './/text()[not(ancestor::script) and not(ancestor::style) and not(ancestor::noscript) and not(ancestor::svg) and not(ancestor::nav) and not(ancestor::footer)]',
+            $root,
+        );
+
+        if (! $nodes instanceof DOMNodeList) {
+            return '';
+        }
+
+        $parts = [];
+        foreach ($nodes as $node) {
+            $text = $this->clean($node->textContent ?? '');
+            if ($text !== '') {
+                $parts[] = $text;
+            }
+        }
+
+        return trim(implode(' ', $parts));
+    }
+
+    private function fingerprintText(DOMXPath $xpath): string
+    {
+        $root = $this->first($xpath, '//main[1]')
+            ?? $this->first($xpath, '//article[1]')
+            ?? $this->first($xpath, '//body[1]');
+
+        if ($root === null) {
+            return '';
+        }
+
+        $nodes = $xpath->query(
+            './/text()[not(ancestor::script) and not(ancestor::style) and not(ancestor::noscript) and not(ancestor::svg) and not(ancestor::nav) and not(ancestor::footer) and not(ancestor::a) and not(ancestor::h1) and not(ancestor::h2) and not(ancestor::h3) and not(ancestor::h4) and not(ancestor::h5) and not(ancestor::h6)]',
             $root,
         );
 
