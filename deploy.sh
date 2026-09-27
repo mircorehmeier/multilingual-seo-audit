@@ -9,7 +9,7 @@ echo "==> Working directory: $(pwd)"
 
 PHP_BIN=""
 
-for VERSION in 8.3 8.4 8.5; do
+for VERSION in 8.5 8.4; do
     CANDIDATE="/opt/plesk/php/$VERSION/bin/php"
     if [ -x "$CANDIDATE" ]; then
         PHP_BIN="$CANDIDATE"
@@ -27,8 +27,8 @@ if [ -z "$PHP_BIN" ]; then
 fi
 
 echo "==> PHP: $("$PHP_BIN" -r 'echo PHP_VERSION;')"
-"$PHP_BIN" -r 'exit(version_compare(PHP_VERSION, "8.3.0", ">=") ? 0 : 1);' || {
-    echo "ERROR: Laravel 13 requires PHP 8.3 or newer."
+"$PHP_BIN" -r 'exit(version_compare(PHP_VERSION, "8.4.1", ">=") ? 0 : 1);' || {
+    echo "ERROR: This Laravel build requires PHP 8.4.1 or newer."
     exit 1
 }
 
