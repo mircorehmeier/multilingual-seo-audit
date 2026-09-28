@@ -58,6 +58,7 @@
       </div>
 
       <div id="summary" class="summary-grid" aria-label="Audit summary"></div>
+      <p class="summary-hint">Click any metric for an explanation and the URLs or checks behind that value.</p>
       <div id="summary-detail" class="summary-detail" hidden aria-live="polite"></div>
 
       <div id="site-diagnostics" class="site-diagnostics" hidden>
