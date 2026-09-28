@@ -7,6 +7,7 @@ const results = document.querySelector('#results');
 const resultDomain = document.querySelector('#result-domain');
 const resultMeta = document.querySelector('#result-meta');
 const summary = document.querySelector('#summary');
+const summaryDetail = document.querySelector('#summary-detail');
 const siteDiagnostics = document.querySelector('#site-diagnostics');
 const siteDiagnosticsMeta = document.querySelector('#site-diagnostics-meta');
 const siteIssuesList = document.querySelector('#site-issues-list');
@@ -23,8 +24,31 @@ function setStatus(message, isError = false) {
   status.classList.toggle('error', isError);
 }
 
-function summaryCard(label, value, type = '') {
-  return `<div class="summary-card ${type}"><span>${label}</span><strong>${value}</strong></div>`;
+const SUMMARY_HELP = {
+  pages: 'Unique final HTML pages included in this audit after redirect-target deduplication.',
+  errors: 'High-priority technical problems found at site or page level.',
+  warnings: 'Actionable issues worth reviewing; these are more important than informational heuristics.',
+  info: 'Low-severity observations and display/content heuristics that are not necessarily SEO problems.',
+  languages: 'Distinct declared HTML language codes found across audited pages.',
+  sitemapUrls: 'URLs discovered from parsed XML sitemaps. Open this metric to see crawl coverage.',
+  indexablePages: 'Audited pages that are technically indexable based on HTTP status, robots directives and canonical checks.',
+  noindexPages: 'Audited pages explicitly marked noindex by meta robots or X-Robots-Tag.',
+  redirects: 'Requested URLs that redirected before reaching their final page. This count is redirecting entry URLs, not redirect hops.',
+  orphanCandidates: 'Sitemap-listed pages with no internal anchor links from other audited pages. Reported only when sitemap coverage is complete.',
+  duplicateContentGroups: 'Groups of indexable audited pages with the same exact main-content fingerprint.',
+  robotsBlockedPages: 'Audited URLs blocked for Googlebot by matching robots.txt rules.',
+  linkTargetsChecked: 'Additional internal link targets checked outside the normal page crawl quota, mainly to catch hidden 4xx/redirect targets.',
+  contextualLinks: 'Unique internal links found inside main/article content, excluding navigation and footer links.',
+  maxCrawlDepth: 'Highest internal-link click depth reached from the first audited final page, where depth 0 is the starting page.',
+  socialImagesChecked: 'Unique Open Graph or Twitter/X image URLs fetched to verify status, content type and detectable dimensions.',
+};
+
+function summaryCard(key, label, value, type = '') {
+  const description = SUMMARY_HELP[key] || '';
+  return `<button type="button" class="summary-card ${type}" data-summary-key="${key}" title="${escapeHtml(description)}" aria-expanded="false">
+    <span class="summary-card-label">${escapeHtml(label)} <span class="summary-help" aria-hidden="true">?</span></span>
+    <strong>${escapeHtml(String(value))}</strong>
+  </button>`;
 }
 
 function escapeHtml(value = '') {
@@ -33,6 +57,164 @@ function escapeHtml(value = '') {
 
 function issueHtml(issue) {
   return `<div class="issue-item"><span class="pill ${issue.severity}">${issue.severity}</span>${escapeHtml(issue.message)}</div>`;
+}
+
+function linkHtml(url, label = url) {
+  return `<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer">${escapeHtml(label)}</a>`;
+}
+
+function detailList(items, emptyMessage = 'None found.') {
+  if (!items.length) return `<p class="muted">${escapeHtml(emptyMessage)}</p>`;
+  const limit = 50;
+  const visible = items.slice(0, limit);
+  const extra = items.length > limit ? `<p class="muted">Showing first ${limit} of ${items.length}.</p>` : '';
+  return `<ul class="summary-detail-list">${visible.map((item) => `<li>${item}</li>`).join('')}</ul>${extra}`;
+}
+
+function collectIssues(result, severity) {
+  const items = [];
+  for (const issue of result.siteIssues || []) {
+    if (issue.severity === severity) items.push(`<strong>Site:</strong> ${escapeHtml(issue.message)}`);
+  }
+  for (const page of result.pages || []) {
+    for (const issue of page.issues || []) {
+      if (issue.severity === severity) {
+        items.push(`${linkHtml(page.url)} — ${escapeHtml(issue.message)}`);
+      }
+    }
+  }
+  return items;
+}
+
+function noindexPage(page) {
+  return (page.issues || []).some((issue) => ['robots_noindex', 'x_robots_noindex'].includes(issue.code));
+}
+
+function summaryDetailContent(key, result) {
+  const pages = result.pages || [];
+  const site = result.site || {};
+  const summaryData = result.summary || {};
+  let title = '';
+  let description = SUMMARY_HELP[key] || '';
+  let body = '';
+
+  if (key === 'pages') {
+    title = `Pages · ${summaryData.pages ?? pages.length}`;
+    body = detailList(pages.map((page) => linkHtml(page.url)), 'No HTML pages were audited.');
+  } else if (['errors', 'warnings', 'info'].includes(key)) {
+    const severity = key === 'errors' ? 'error' : key === 'warnings' ? 'warning' : 'info';
+    const count = summaryData[key] ?? 0;
+    title = `${key[0].toUpperCase() + key.slice(1)} · ${count}`;
+    body = detailList(collectIssues(result, severity), `No ${key} were found.`);
+  } else if (key === 'languages') {
+    const languages = summaryData.languages || [];
+    title = `Languages · ${languages.length}`;
+    body = detailList(languages.map((lang) => {
+      const count = pages.filter((page) => String(page.lang || '').toLowerCase() === String(lang).toLowerCase()).length;
+      return `<strong>${escapeHtml(lang)}</strong> — ${count} page${count === 1 ? '' : 's'}`;
+    }), 'No declared HTML languages were detected.');
+  } else if (key === 'sitemapUrls') {
+    const coverage = site.crawlCoverage || {};
+    title = `Sitemap URLs · ${summaryData.sitemapUrls ?? 0}`;
+    const sitemapItems = (site.sitemaps || []).map((url) => linkHtml(url));
+    body = `<p><strong>Coverage:</strong> ${coverage.audited ?? 0} of ${coverage.sitemapUrls ?? summaryData.sitemapUrls ?? 0} sitemap URLs audited${coverage.percent == null ? '' : ` (${coverage.percent}%)`}.</p>` +
+      detailList(sitemapItems, 'No readable XML sitemap was detected.');
+  } else if (key === 'indexablePages') {
+    const matching = pages.filter((page) => page.indexability?.status === 'indexable');
+    title = `Indexable pages · ${summaryData.indexablePages ?? matching.length}`;
+    body = detailList(matching.map((page) => linkHtml(page.url)), 'No audited pages are currently classified as indexable.');
+  } else if (key === 'noindexPages') {
+    const matching = pages.filter(noindexPage);
+    title = `Noindex pages · ${summaryData.noindexPages ?? matching.length}`;
+    body = detailList(matching.map((page) => {
+      const directive = page.xRobotsTag || page.robots || 'noindex';
+      return `${linkHtml(page.url)} — ${escapeHtml(directive)}`;
+    }), 'No audited pages explicitly use noindex.');
+  } else if (key === 'redirects') {
+    const redirects = site.redirects || [];
+    title = `Redirects · ${summaryData.redirects ?? redirects.length}`;
+    body = detailList(redirects.map((entry) => {
+      const chain = entry.chain || [];
+      const hops = chain.map((hop) => `${hop.status} ${escapeHtml(hop.from)} → ${escapeHtml(hop.to)}`).join(' · ');
+      return `${linkHtml(entry.requestedUrl)} → ${linkHtml(entry.finalUrl)} <span class="muted">(${chain.length} hop${chain.length === 1 ? '' : 's'})</span>${hops ? `<div class="summary-subdetail">${hops}</div>` : ''}`;
+    }), 'No redirecting entry URLs were encountered.');
+  } else if (key === 'orphanCandidates') {
+    const matching = pages.filter((page) => (page.issues || []).some((issue) => issue.code === 'orphan_candidate'));
+    title = `Orphan candidates · ${summaryData.orphanCandidates ?? matching.length}`;
+    body = detailList(matching.map((page) => linkHtml(page.url)), 'No orphan candidates were found, or sitemap coverage was not complete enough to make that conclusion.');
+  } else if (key === 'duplicateContentGroups') {
+    const matching = pages.filter((page) => (page.issues || []).some((issue) => issue.code === 'content_duplicate' || issue.code === 'content_duplicate_multilingual'));
+    title = `Duplicate groups · ${summaryData.duplicateContentGroups ?? 0}`;
+    body = detailList(matching.map((page) => linkHtml(page.url)), 'No exact main-content duplicate groups were found.');
+  } else if (key === 'robotsBlockedPages') {
+    const matching = pages.filter((page) => page.robotsTxt?.allowed === false);
+    title = `Robots blocked · ${summaryData.robotsBlockedPages ?? matching.length}`;
+    body = detailList(matching.map((page) => `${linkHtml(page.url)} — matched ${escapeHtml(page.robotsTxt?.matchedDirective || 'disallow')}: ${escapeHtml(page.robotsTxt?.matchedRule || '')}`), 'No audited pages are blocked for Googlebot by robots.txt.');
+  } else if (key === 'linkTargetsChecked') {
+    const checks = site.linkTargetChecks || [];
+    title = `Checked link targets · ${summaryData.linkTargetsChecked ?? checks.length}`;
+    body = detailList(checks.map((check) => {
+      const status = check.status || 'failed';
+      const final = check.finalUrl && check.finalUrl !== check.url ? ` → ${linkHtml(check.finalUrl)}` : '';
+      const error = check.error ? ` — ${escapeHtml(check.error)}` : '';
+      return `${linkHtml(check.url)} — HTTP ${escapeHtml(String(status))}${final}${error}`;
+    }), 'No extra internal targets needed checking outside the main crawl.');
+  } else if (key === 'contextualLinks') {
+    const noContextualIncoming = pages.filter((page) =>
+      page.indexability?.status === 'indexable' &&
+      page.inSitemap === true &&
+      (page.internalLinks?.crawlDepth ?? 0) > 0 &&
+      (page.internalLinks?.contextualIncoming ?? 0) === 0
+    );
+    title = `Contextual links · ${summaryData.contextualLinks ?? 0}`;
+    const opportunities = noContextualIncoming.map((page) =>
+      `${linkHtml(page.url)} — ${page.internalLinks?.incoming ?? 0} total inbound, 0 contextual inbound`
+    );
+    body = `<p><strong>${summaryData.contextualLinks ?? 0}</strong> unique internal links were found inside main/article content.</p>
+      <h4>Pages with no contextual inbound links</h4>
+      ${detailList(opportunities, 'Every eligible sitemap page has at least one contextual inbound link, or no opportunity could be established.')}`;
+  } else if (key === 'maxCrawlDepth') {
+    const depth = summaryData.maxCrawlDepth ?? 0;
+    const deepest = pages.filter((page) => page.internalLinks?.crawlDepth === depth);
+    title = `Max crawl depth · ${depth}`;
+    body = `<p>Depth 0 is the first audited final page; depth 1 is one internal-link click away, and so on.</p>` +
+      detailList(deepest.map((page) => linkHtml(page.url)), 'No crawl-depth data is available.');
+  } else if (key === 'socialImagesChecked') {
+    const images = new Map();
+    for (const page of pages) {
+      for (const image of [page.socialImages?.openGraph, page.socialImages?.twitter]) {
+        if (image?.url) images.set(image.url, image);
+      }
+    }
+    title = `Social images checked · ${summaryData.socialImagesChecked ?? images.size}`;
+    body = detailList([...images.values()].map((image) => {
+      const dimensions = image.width && image.height ? ` · ${image.width}×${image.height}` : '';
+      return `${linkHtml(image.url)} — HTTP ${image.status || 'failed'} · ${escapeHtml(image.contentType || 'unknown type')}${dimensions}`;
+    }), 'No social-image URLs were available to check.');
+  } else {
+    title = 'Metric details';
+  }
+
+  return { title, description, body };
+}
+
+function showSummaryDetail(key) {
+  if (!latestResult || !summaryDetail) return;
+  const detail = summaryDetailContent(key, latestResult);
+  summary.querySelectorAll('.summary-card').forEach((card) => {
+    const selected = card.dataset.summaryKey === key;
+    card.classList.toggle('selected', selected);
+    card.setAttribute('aria-expanded', selected ? 'true' : 'false');
+  });
+  summaryDetail.innerHTML = `
+    <div class="summary-detail-heading">
+      <div><span class="eyebrow">Metric details</span><h3>${escapeHtml(detail.title)}</h3></div>
+      <button type="button" class="summary-detail-close" aria-label="Close metric details">×</button>
+    </div>
+    <p class="summary-detail-description">${escapeHtml(detail.description)}</p>
+    <div class="summary-detail-body">${detail.body}</div>
+  `;
+  summaryDetail.hidden = false;
 }
 
 function pageMatches(page) {
@@ -104,23 +286,27 @@ function render(result) {
   resultDomain.textContent = parsed.hostname;
   resultMeta.textContent = result.summary.pages + ' page' + (result.summary.pages === 1 ? '' : 's') + ' audited · ' + new Date(result.auditedAt).toLocaleString();
   summary.innerHTML = [
-    summaryCard('Pages', result.summary.pages),
-    summaryCard('Errors', result.summary.errors, 'error'),
-    summaryCard('Warnings', result.summary.warnings, 'warning'),
-    summaryCard('Info', result.summary.info, 'info'),
-    summaryCard('Languages', result.summary.languages.length || '—'),
-    summaryCard('Sitemap URLs', result.summary.sitemapUrls ?? '—'),
-    summaryCard('Indexable pages', result.summary.indexablePages ?? '—'),
-    summaryCard('Noindex pages', result.summary.noindexPages ?? 0),
-    summaryCard('Redirects', result.summary.redirects ?? 0),
-    summaryCard('Orphan candidates', result.summary.orphanCandidates ?? 0),
-    summaryCard('Duplicate groups', result.summary.duplicateContentGroups ?? 0),
-    summaryCard('Robots blocked', result.summary.robotsBlockedPages ?? 0),
-    summaryCard('Checked link targets', result.summary.linkTargetsChecked ?? 0),
-    summaryCard('Contextual links', result.summary.contextualLinks ?? 0),
-    summaryCard('Max crawl depth', result.summary.maxCrawlDepth ?? 0),
-    summaryCard('Social images checked', result.summary.socialImagesChecked ?? 0),
+    summaryCard('pages', 'Pages', result.summary.pages),
+    summaryCard('errors', 'Errors', result.summary.errors, 'error'),
+    summaryCard('warnings', 'Warnings', result.summary.warnings, 'warning'),
+    summaryCard('info', 'Info', result.summary.info, 'info'),
+    summaryCard('languages', 'Languages', result.summary.languages.length || '—'),
+    summaryCard('sitemapUrls', 'Sitemap URLs', result.summary.sitemapUrls ?? '—'),
+    summaryCard('indexablePages', 'Indexable pages', result.summary.indexablePages ?? '—'),
+    summaryCard('noindexPages', 'Noindex pages', result.summary.noindexPages ?? 0),
+    summaryCard('redirects', 'Redirects', result.summary.redirects ?? 0),
+    summaryCard('orphanCandidates', 'Orphan candidates', result.summary.orphanCandidates ?? 0),
+    summaryCard('duplicateContentGroups', 'Duplicate groups', result.summary.duplicateContentGroups ?? 0),
+    summaryCard('robotsBlockedPages', 'Robots blocked', result.summary.robotsBlockedPages ?? 0),
+    summaryCard('linkTargetsChecked', 'Checked link targets', result.summary.linkTargetsChecked ?? 0),
+    summaryCard('contextualLinks', 'Contextual links', result.summary.contextualLinks ?? 0),
+    summaryCard('maxCrawlDepth', 'Max crawl depth', result.summary.maxCrawlDepth ?? 0),
+    summaryCard('socialImagesChecked', 'Social images checked', result.summary.socialImagesChecked ?? 0),
   ].join('');
+  if (summaryDetail) {
+    summaryDetail.hidden = true;
+    summaryDetail.innerHTML = '';
+  }
   renderSiteDiagnostics(result);
   renderRows();
   results.hidden = false;
@@ -168,6 +354,21 @@ form.addEventListener('submit', async (event) => {
   }
 });
 
+summary.addEventListener('click', (event) => {
+  const card = event.target.closest('.summary-card[data-summary-key]');
+  if (!card) return;
+  showSummaryDetail(card.dataset.summaryKey);
+});
+
+summaryDetail?.addEventListener('click', (event) => {
+  if (!event.target.closest('.summary-detail-close')) return;
+  summaryDetail.hidden = true;
+  summary.querySelectorAll('.summary-card').forEach((card) => {
+    card.classList.remove('selected');
+    card.setAttribute('aria-expanded', 'false');
+  });
+});
+
 severityFilter.addEventListener('change', renderRows);
 tableSearch.addEventListener('input', renderRows);
 
@@ -182,6 +383,7 @@ downloadCsv.addEventListener('click', () => {
   const headers = [
     'Record type', 'Audit generated at', 'Engine version', 'URL', 'Requested URL', 'Status', 'Lang', 'Detected lang', 'Language confidence',
     'Title', 'Meta description', 'Canonical', 'Indexability', 'Indexability reason', 'Robots', 'X-Robots-Tag', 'Robots.txt allowed',
+    'Redirect final URL', 'Redirect chain', 'Link check final URL', 'Link check error',
     'Robots.txt matched rule', 'Redirect hops', 'Incoming internal links', 'Outgoing internal links', 'Contextual incoming links',
     'Contextual outgoing links', 'Crawl depth', 'Internal links to redirects', 'In sitemap', 'H1 count', 'H1 text', 'H2 count',
     'Word count', 'Image count', 'Images missing alt', 'Images empty alt', 'Hreflang codes', 'Hreflang targets', 'Hreflang sources',
@@ -227,6 +429,37 @@ downloadCsv.addEventListener('click', () => {
     'Summary max crawl depth': latestResult.summary?.maxCrawlDepth ?? '',
     'Issues': siteIssues.map((issue) => issue.severity + ': ' + issue.message).join(' | '),
   }));
+
+  for (const redirect of latestResult.site?.redirects || []) {
+    const chain = redirect.chain || [];
+    rows.push(makeRow({
+      'Record type': 'redirect',
+      'Audit generated at': latestResult.auditedAt || '',
+      'Engine version': latestResult.version || '',
+      'URL': redirect.requestedUrl || '',
+      'Requested URL': redirect.requestedUrl || '',
+      'Redirect hops': chain.length,
+      'Redirect final URL': redirect.finalUrl || '',
+      'Redirect chain': chain.map((hop) => hop.status + ' ' + hop.from + ' => ' + hop.to).join(' | '),
+      'Issues': 'Redirect: ' + (redirect.requestedUrl || '') + ' => ' + (redirect.finalUrl || ''),
+    }));
+  }
+
+  for (const check of latestResult.site?.linkTargetChecks || []) {
+    rows.push(makeRow({
+      'Record type': 'link-check',
+      'Audit generated at': latestResult.auditedAt || '',
+      'Engine version': latestResult.version || '',
+      'URL': check.url || '',
+      'Requested URL': check.url || '',
+      'Status': check.status || '',
+      'Redirect hops': (check.chain || []).length,
+      'Redirect chain': (check.chain || []).map((hop) => hop.status + ' ' + hop.from + ' => ' + hop.to).join(' | '),
+      'Link check final URL': check.finalUrl || '',
+      'Link check error': check.error || '',
+      'Issues': check.error ? 'Link target check failed: ' + check.error : '',
+    }));
+  }
 
   for (const page of latestResult.pages) {
     const count = (severity) => page.issues.filter((issue) => issue.severity === severity).length;
