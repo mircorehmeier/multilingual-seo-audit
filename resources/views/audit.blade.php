@@ -57,7 +57,8 @@
         </div>
       </div>
 
-      <div id="summary" class="summary-grid"></div>
+      <div id="summary" class="summary-grid" aria-label="Audit summary"></div>
+      <div id="summary-detail" class="summary-detail" hidden aria-live="polite"></div>
 
       <div id="site-diagnostics" class="site-diagnostics" hidden>
         <div><strong>Site-level checks</strong><span id="site-diagnostics-meta" class="muted"></span></div>
