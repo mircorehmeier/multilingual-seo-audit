@@ -74,6 +74,7 @@ if command -v git >/dev/null 2>&1 && git rev-parse --is-inside-work-tree >/dev/n
     COMMIT_SHA="$(git rev-parse --short HEAD)"
 fi
 
-printf 'ok - laravel 0.6.2\ncommit: %s\n' "$COMMIT_SHA" > public/deploy-status.txt
+APP_VERSION="$("$PHP_BIN" -r '$config = require "config/audit.php"; echo $config["version"] ?? "unknown";')"
+printf 'ok - laravel %s\ncommit: %s\n' "$APP_VERSION" "$COMMIT_SHA" > public/deploy-status.txt
 
 echo "==> Laravel deploy complete"
