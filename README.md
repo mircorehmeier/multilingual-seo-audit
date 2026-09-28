@@ -141,7 +141,7 @@ The script:
 4. creates `APP_KEY` if necessary
 5. clears stale Laravel caches
 6. caches configuration and Blade views
-7. writes the release version and deployed Git commit to `public/deploy-status.txt`
+7. reads the release version from `config/audit.php` and writes it with the deployed Git commit to `public/deploy-status.txt`
 
 There is **no Node.js/Passenger runtime** in the Laravel version.
 
