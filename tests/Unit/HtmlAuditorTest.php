@@ -214,4 +214,51 @@ HTML;
         $this->assertNotContains('hreflang_self_missing', $issues);
     }
 
+
+    public function test_jsonld_id_only_references_do_not_trigger_missing_type_noise(): void
+    {
+        $auditor = new HtmlAuditor(new UrlGuard(), new LanguageDetector());
+
+        $html = <<<'HTML'
+<!doctype html>
+<html lang="en">
+<head>
+<title>Structured data reference test page</title>
+<meta name="description" content="A complete description for testing JSON-LD graph references without generating false-positive semantic findings.">
+<link rel="canonical" href="https://example.com/">
+<meta property="og:title" content="Structured data reference test page">
+<meta property="og:description" content="Description">
+<meta property="og:image" content="https://example.com/share.png">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">
+{
+  "@context":"https://schema.org",
+  "@graph":[
+    {
+      "@type":"WebSite",
+      "@id":"https://example.com/#website",
+      "url":"https://example.com/",
+      "publisher":{"@id":"https://example.com/#person"}
+    },
+    {
+      "@type":"Person",
+      "@id":"https://example.com/#person",
+      "name":"Example Person"
+    }
+  ]
+}
+</script>
+</head>
+<body><main><h1>Structured data test</h1><p>This page contains enough descriptive content for the parser while the JSON-LD graph uses an id-only reference node for the publisher relationship.</p></main></body>
+</html>
+HTML;
+
+        $page = $auditor->parse('https://example.com/', 200, 'text/html', $html);
+        $codes = array_column($page['issues'], 'code');
+
+        $this->assertNotContains('jsonld_type_missing', $codes);
+        $this->assertContains('Person', $page['structuredData']['types']);
+        $this->assertContains('WebSite', $page['structuredData']['types']);
+    }
+
 }
