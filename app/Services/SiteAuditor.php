@@ -338,6 +338,7 @@ class SiteAuditor
                 'sitemapUrlsDiscovered' => $site['sitemapUrlsDiscovered'],
                 'crawlCoverage' => $crossPage['crawlCoverage'],
                 'redirects' => array_values($redirectedRequests),
+                'linkTargetChecks' => array_values($targetChecks['checks']),
             ],
             'siteIssues' => $site['issues'],
             'pages' => $pages,
