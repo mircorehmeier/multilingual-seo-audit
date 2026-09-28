@@ -546,11 +546,21 @@ class HtmlAuditor
             static fn (string $type): bool => $type !== '',
         ));
 
-        if ($types === [] && ! isset($node['@graph']) && (isset($node['@context']) || isset($node['@id']))) {
+        $descriptiveKeys = array_values(array_diff(
+            array_keys($node),
+            ['@context', '@id', '@graph'],
+        ));
+
+        if (
+            $types === []
+            && ! isset($node['@graph'])
+            && isset($node['@context'])
+            && $descriptiveKeys !== []
+        ) {
             $issues[] = [
                 'code' => 'jsonld_type_missing',
                 'severity' => 'info',
-                'message' => 'A JSON-LD entity has no @type; review whether the structured data describes a concrete schema.org entity.',
+                'message' => 'A standalone JSON-LD entity has descriptive properties but no @type; review whether a schema.org type is intended.',
             ];
         }
 
