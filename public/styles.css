@@ -85,6 +85,7 @@ h2 { margin: 0; font-size: clamp(1.8rem, 3vw, 2.8rem); letter-spacing: -.035em; 
 .summary-card.info strong { color: var(--info); }
 .summary-help { flex: 0 0 auto; width: 17px; height: 17px; display: inline-grid; place-items: center; border: 1px solid var(--line); border-radius: 50%; color: var(--muted); font-size: .66rem; font-weight: 850; line-height: 1; }
 .summary-card:hover .summary-help, .summary-card.selected .summary-help { border-color: #9fb9ab; color: var(--accent); }
+.summary-hint { margin: 0 0 14px; color: var(--muted); font-size: .8rem; }
 .summary-detail { margin: 0 0 24px; padding: 20px; border: 1px solid var(--line); border-radius: 15px; background: #fbfcfb; }
 .summary-detail-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
 .summary-detail-heading .eyebrow { margin-bottom: 5px; }
