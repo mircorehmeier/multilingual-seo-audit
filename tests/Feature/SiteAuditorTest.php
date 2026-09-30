@@ -280,6 +280,9 @@ XML;
         $this->assertArrayHasKey('url', $result['site']['linkTargetChecks'][0]);
         $this->assertArrayHasKey('status', $result['site']['linkTargetChecks'][0]);
         $this->assertSame(1, $result['summary']['socialImagesChecked']);
+        $this->assertSame(1, $result['summary']['socialImagesDiscovered']);
+        $this->assertSame(1, $result['site']['socialImages']['checked']);
+        $this->assertSame(1, $result['site']['socialImages']['discovered']);
         $this->assertGreaterThanOrEqual(2, $result['summary']['contextualLinks']);
         $this->assertGreaterThanOrEqual(1, $result['summary']['maxCrawlDepth']);
 
