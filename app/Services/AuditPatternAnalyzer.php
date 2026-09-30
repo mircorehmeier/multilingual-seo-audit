@@ -115,7 +115,7 @@ class AuditPatternAnalyzer
         if (
             $affectedPages >= 3
             && $ratio >= 0.5
-            && $this->category($code) in ['metadata', 'social', 'multilingual', 'structured-data', 'images']
+            && in_array($this->category($code), ['metadata', 'social', 'multilingual', 'structured-data', 'images'], true)
         ) {
             return 'likely-template';
         }
