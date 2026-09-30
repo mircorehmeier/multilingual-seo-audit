@@ -2,7 +2,7 @@
 
 **Live demo:** https://seo-audit.rehmeier.es/
 
-An open-source multilingual technical SEO auditor built with **Laravel 13** and PHP. Current application version: **0.6.2**.
+An open-source multilingual technical SEO auditor built with **Laravel 13** and PHP. Current application version: **0.7.0**.
 
 It crawls a same-origin website and reports concrete technical issues instead of inventing an opaque SEO score.
 
@@ -38,8 +38,12 @@ It crawls a same-origin website and reports concrete technical issues instead of
 - canonical target status/indexability checks
 - HTTP/fetch failures
 - clickable, self-explaining summary metrics with URL-level drill-downs for redirects, issues, indexability, robots, crawl depth, link checks and social images
+- repeated-issue pattern grouping with likely shared/template-level root causes
+- URL discovery provenance (start URL, sitemap, internal link, hreflang, canonical and redirect)
+- preferred-origin normalization checks across HTTP/HTTPS and www/non-www variants
+- local audit-to-audit JSON comparison for new/fixed issues and added/removed/changed pages
 - CSV and JSON exports
-- self-describing CSV exports with audit timestamp, engine version, redirect records, extra link-check records, robots access, hreflang source, crawl depth, social-image diagnostics, heading counts and JSON-LD diagnostics
+- self-describing CSV exports with audit timestamp, engine version, redirect records, origin variants, repeated patterns, URL discovery provenance, extra link-check records, robots access, hreflang source, crawl depth, social-image diagnostics, heading counts and JSON-LD diagnostics
 
 ## Tech stack
 
@@ -165,6 +169,7 @@ Composer + Laravel deployment
 
 ## Current limitations
 
+- audit-to-audit comparison is intentionally local/browser-side and currently accepts previous JSON exports rather than storing audit history on the server
 - raw server-returned HTML only; JavaScript rendering is not included
 - content-language detection is intentionally conservative and currently covers EN, DE, ES, PT, FR, IT and NL
 - independent internal-link target checks are capped at 50 URLs beyond the normal page crawl quota
