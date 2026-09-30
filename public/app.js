@@ -72,6 +72,44 @@ function issueHtml(issue) {
   return `<div class="issue-item"><span class="pill ${issue.severity}">${issue.severity}</span>${escapeHtml(issue.message)}</div>`;
 }
 
+const DISCOVERY_LABELS = {
+  start: ['start', 'start'],
+  sitemap: ['sitemap', 'sitemaps'],
+  'internal-link': ['internal link', 'internal links'],
+  hreflang: ['hreflang', 'hreflangs'],
+  canonical: ['canonical', 'canonicals'],
+  redirect: ['redirect', 'redirects'],
+};
+
+function groupedDiscovery(entries = []) {
+  const groups = new Map();
+
+  for (const entry of entries) {
+    const type = String(entry.type || 'unknown');
+    if (!groups.has(type)) groups.set(type, []);
+    groups.get(type).push(entry);
+  }
+
+  return [...groups.entries()].map(([type, items]) => {
+    const labels = DISCOVERY_LABELS[type] || [type.replaceAll('-', ' '), type.replaceAll('-', ' ') + 's'];
+    const count = items.length;
+    const label = count > 1 ? `${labels[1]} (${count})` : labels[0];
+    const sources = items.map((item) => item.from).filter(Boolean);
+    const uniqueSources = [...new Set(sources)];
+    const title = uniqueSources.length
+      ? label + '\n' + uniqueSources.map((source) => '• ' + source).join('\n')
+      : label;
+
+    return {
+      type,
+      count,
+      label,
+      title,
+      sources: uniqueSources,
+    };
+  });
+}
+
 function linkHtml(url, label = url) {
   return `<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer">${escapeHtml(label)}</a>`;
 }
@@ -260,11 +298,9 @@ function renderRows() {
     const indexabilityCell = row.querySelector('.indexability-cell');
     const issuesCell = row.querySelector('.issues-cell');
 
-    const discovery = (page.discovery || []).map((entry) => {
-      const label = String(entry.type || 'unknown').replaceAll('-', ' ');
-      const title = entry.from ? label + ' · ' + entry.from : label;
-      return `<span class="pill" title="${escapeHtml(title)}">${escapeHtml(label)}</span>`;
-    }).join('');
+    const discovery = groupedDiscovery(page.discovery || []).map((group) =>
+      `<span class="pill" title="${escapeHtml(group.title)}">${escapeHtml(group.label)}</span>`
+    ).join('');
     pageCell.innerHTML = `<a class="page-url" href="${escapeHtml(page.url)}" target="_blank" rel="noreferrer">${escapeHtml(page.url)}</a><div class="page-title">${escapeHtml(page.title || 'No title')}</div>` +
       (discovery ? `<div class="discovery-line"><span>Found via</span>${discovery}</div>` : '');
     const detected = page.detectedLang
@@ -735,7 +771,7 @@ downloadCsv.addEventListener('click', () => {
       'Canonical': page.canonical || '',
       'Indexability': page.indexability?.status || 'unknown',
       'Indexability reason': page.indexability?.reason || '',
-      'Discovery sources': (page.discovery || []).map((entry) => entry.type || '').join(' | '),
+      'Discovery sources': groupedDiscovery(page.discovery || []).map((group) => group.label).join(' | '),
       'Discovery details': (page.discovery || []).map((entry) => (entry.type || '') + (entry.from ? ' <= ' + entry.from : '')).join(' | '),
       'Robots': page.robots || '',
       'X-Robots-Tag': page.xRobotsTag || '',
