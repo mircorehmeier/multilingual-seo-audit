@@ -61,6 +61,23 @@ HTML;
         $this->assertSame(2, $result['summary']['sitemapUrls']);
         $this->assertCount(2, array_unique(array_column($result['pages'], 'url')));
         $this->assertSame(2, $result['summary']['indexablePages']);
+        $this->assertNotEmpty($result['site']['originNormalization']['variants']);
+        $this->assertNotEmpty($result['site']['patterns']);
+
+        $pagesByUrl = [];
+        foreach ($result['pages'] as $auditedPage) {
+            $pagesByUrl[$auditedPage['url']] = $auditedPage;
+        }
+
+        $englishDiscovery = array_column($pagesByUrl['https://1.1.1.1/en/']['discovery'], 'type');
+        $germanDiscovery = array_column($pagesByUrl['https://1.1.1.1/de/']['discovery'], 'type');
+
+        $this->assertContains('start', $englishDiscovery);
+        $this->assertContains('sitemap', $englishDiscovery);
+        $this->assertContains('redirect', $englishDiscovery);
+        $this->assertContains('sitemap', $germanDiscovery);
+        $this->assertContains('internal-link', $germanDiscovery);
+        $this->assertContains('hreflang', $germanDiscovery);
 
         foreach ($result['pages'] as $auditedPage) {
             $this->assertSame('indexable', $auditedPage['indexability']['status']);
