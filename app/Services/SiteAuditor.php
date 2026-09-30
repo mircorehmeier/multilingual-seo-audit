@@ -279,17 +279,41 @@ class SiteAuditor
                 $seenFinal[$finalKey] = true;
 
                 foreach ($page['links'] as $link) {
+                    try {
+                        if ($this->urlKey($link) === $finalKey) {
+                            continue;
+                        }
+                    } catch (Throwable) {
+                        continue;
+                    }
+
                     $enqueue($link, 'internal-link', $finalUrl);
                 }
 
                 foreach ($page['hreflangs'] as $alternate) {
-                    if (! empty($alternate['href'])) {
-                        $enqueue($alternate['href'], 'hreflang', $finalUrl);
+                    if (empty($alternate['href'])) {
+                        continue;
                     }
+
+                    try {
+                        if ($this->urlKey($alternate['href']) === $finalKey) {
+                            continue;
+                        }
+                    } catch (Throwable) {
+                        continue;
+                    }
+
+                    $enqueue($alternate['href'], 'hreflang', $finalUrl);
                 }
 
                 if (! empty($page['canonical'])) {
-                    $enqueue($page['canonical'], 'canonical', $finalUrl);
+                    try {
+                        if ($this->urlKey($page['canonical']) !== $finalKey) {
+                            $enqueue($page['canonical'], 'canonical', $finalUrl);
+                        }
+                    } catch (Throwable) {
+                        // Canonical validity is reported separately.
+                    }
                 }
             }
         }
