@@ -2,7 +2,7 @@
 
 **Live demo:** https://seo-audit.rehmeier.es/
 
-An open-source multilingual technical SEO auditor built with **Laravel 13** and PHP. Current application version: **0.7.0**.
+An open-source multilingual technical SEO auditor built with **Laravel 13** and PHP. Current application version: **0.7.1**.
 
 It crawls a same-origin website and reports concrete technical issues instead of inventing an opaque SEO score.
 
@@ -39,7 +39,7 @@ It crawls a same-origin website and reports concrete technical issues instead of
 - HTTP/fetch failures
 - clickable, self-explaining summary metrics with URL-level drill-downs for redirects, issues, indexability, robots, crawl depth, link checks and social images
 - repeated-issue pattern grouping with likely shared/template-level root causes
-- URL discovery provenance (start URL, sitemap, internal link, hreflang, canonical and redirect)
+- URL discovery provenance (start URL, sitemap, internal link, hreflang, canonical and redirect), with repeated sources grouped into compact counts such as `internal links (5)`
 - preferred-origin normalization checks across HTTP/HTTPS and www/non-www variants
 - local audit-to-audit JSON comparison for new/fixed issues and added/removed/changed pages
 - CSV and JSON exports
