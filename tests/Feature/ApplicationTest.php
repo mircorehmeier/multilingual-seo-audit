@@ -13,7 +13,7 @@ class ApplicationTest extends TestCase
             ->assertSee('Find multilingual SEO problems')
             ->assertSee('0.7.0')
             ->assertDontSee('Running version')
-            ->assertSee('summary-detail', false);
+            ->assertSee('summary-detail', false)
             ->assertSee('pattern-insights', false)
             ->assertSee('origin-normalization', false)
             ->assertSee('compare-audit-file', false);
