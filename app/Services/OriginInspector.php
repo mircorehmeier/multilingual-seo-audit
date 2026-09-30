@@ -19,6 +19,7 @@ class OriginInspector
         $variants = $this->variants($startUrl, $preferredOrigin);
         $results = [];
         $issues = [];
+        $directNonpreferred = [];
 
         foreach ($variants as $variant) {
             try {
@@ -46,11 +47,7 @@ class OriginInspector
                 ];
 
                 if ($relation === 'direct-nonpreferred') {
-                    $issues[] = [
-                        'code' => 'origin_variant_direct_200',
-                        'severity' => 'warning',
-                        'message' => 'Non-preferred origin returns HTTP '.$status.' without consolidating to '.$preferredOrigin.': '.$variantOrigin.'.',
-                    ];
+                    $directNonpreferred[$variantOrigin] = $variantOrigin;
                 }
             } catch (Throwable $exception) {
                 $results[] = [
@@ -64,6 +61,19 @@ class OriginInspector
                     'error' => $exception->getMessage(),
                 ];
             }
+        }
+
+        if ($directNonpreferred !== []) {
+            $origins = array_values($directNonpreferred);
+            $examples = implode(', ', array_slice($origins, 0, 3));
+            $extra = count($origins) > 3 ? ' +'.(count($origins) - 3).' more' : '';
+
+            $issues[] = [
+                'code' => 'origin_variant_direct_200',
+                'severity' => 'warning',
+                'message' => count($origins).' non-preferred origin'.(count($origins) === 1 ? '' : 's').
+                    ' serve HTTP 2xx without redirecting to '.$preferredOrigin.': '.$examples.$extra.'.',
+            ];
         }
 
         return [
