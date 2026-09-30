@@ -20,6 +20,7 @@ class SiteAuditor
     private const MAX_SITEMAP_BYTES = 5_000_000;
     private const MAX_SITEMAPS = 8;
     private const MAX_SITEMAP_URLS = 1000;
+    private const MAX_SOCIAL_IMAGES = 75;
 
     public function __construct(
         private readonly UrlGuard $urls,
@@ -39,9 +40,13 @@ class SiteAuditor
             $startInput = 'https://'.$startInput;
         }
 
-        $startUrl = $this->urls->assertPublic($startInput);
+        $inputUrl = $this->urls->assertPublic($startInput);
         $maxPages = max(1, min(100, $requestedMaxPages));
-        $crawlOrigin = $this->urls->origin($startUrl);
+
+        $seed = $this->resolveAuditSeed($inputUrl);
+        $auditSeedUrl = $seed['seedUrl'];
+        $inputOrigin = $this->urls->origin($inputUrl);
+        $crawlOrigin = $seed['seedOrigin'];
 
         $site = $this->discoverSiteMetadata($crawlOrigin);
         $sitemapSeedUrls = $site['seedUrls'];
@@ -50,8 +55,8 @@ class SiteAuditor
         $robotsGroups = $site['robotsGroups'];
         unset($site['seedUrls'], $site['sitemapHreflangs'], $site['sitemapSources'], $site['robotsGroups']);
 
-        $queue = [$startUrl];
-        $queued = [$this->urlKey($startUrl) => true];
+        $queue = [$auditSeedUrl];
+        $queued = [$this->urlKey($auditSeedUrl) => true];
         $visited = [];
         $seenFinal = [];
         $redirectMap = [];
@@ -59,7 +64,33 @@ class SiteAuditor
         $pages = [];
         $discovery = [];
 
-        $this->recordDiscovery($discovery, $startUrl, 'start', null);
+        $this->recordDiscovery(
+            $discovery,
+            $auditSeedUrl,
+            'start',
+            $auditSeedUrl !== $inputUrl ? $inputUrl : null,
+        );
+
+        if ($seed['redirectChain'] !== []) {
+            $redirectedRequests[$this->urlKey($inputUrl)] = [
+                'requestedUrl' => $inputUrl,
+                'finalUrl' => $seed['redirectFinalUrl'],
+                'chain' => $seed['redirectChain'],
+            ];
+
+            foreach ($seed['redirectChain'] as $hop) {
+                $redirectMap[$this->urlKey($hop['from'])] = [
+                    'finalUrl' => $seed['redirectFinalUrl'],
+                    'chain' => $seed['redirectChain'],
+                ];
+            }
+
+            $this->recordDiscovery($discovery, $seed['redirectFinalUrl'], 'redirect', $inputUrl);
+        }
+
+        if ($seed['source'] === 'start-page-canonical' && $auditSeedUrl !== $seed['redirectFinalUrl']) {
+            $this->recordDiscovery($discovery, $auditSeedUrl, 'canonical', $seed['redirectFinalUrl']);
+        }
 
         $enqueue = function (string $url, string $type, ?string $from = null) use (
             &$queue,
@@ -335,7 +366,16 @@ class SiteAuditor
             $redirectedRequests[$key] = $entry;
         }
 
-        $socialImagesChecked = $this->attachSocialImageDiagnostics($pages);
+        $socialImageDiagnostics = $this->attachSocialImageDiagnostics($pages);
+
+        if ($socialImageDiagnostics['discovered'] > $socialImageDiagnostics['checked']) {
+            $site['issues'][] = [
+                'code' => 'social_image_check_limited',
+                'severity' => 'info',
+                'message' => 'Checked '.$socialImageDiagnostics['checked'].' of '.$socialImageDiagnostics['discovered'].
+                    ' unique social-image URLs because the per-audit safety limit is '.self::MAX_SOCIAL_IMAGES.'.',
+            ];
+        }
 
         $crossPage = $this->addCrossPageChecks(
             $pages,
@@ -347,12 +387,36 @@ class SiteAuditor
 
         $site['issues'] = array_merge($site['issues'], $targetChecks['siteIssues'], $crossPage['siteIssues']);
 
-        $originNormalization = $this->originInspector->inspect($startUrl, $crawlOrigin);
+        $canonicalPreference = $this->canonicalOriginPreference($pages, $crawlOrigin, $seed);
+        $preferredOrigin = $canonicalPreference['origin'];
+
+        if (
+            $preferredOrigin !== $crawlOrigin
+            && $canonicalPreference['source'] === 'sitewide-canonical'
+        ) {
+            $site['issues'][] = [
+                'code' => 'canonical_origin_conflict',
+                'severity' => 'warning',
+                'message' => 'Most page canonicals prefer '.$preferredOrigin.' while this crawl used '.$crawlOrigin.
+                    '. Treat this as a host-normalization problem, not dozens of independent page canonicals.',
+            ];
+        }
+
+        $originNormalization = $this->originInspector->inspect($inputUrl, $preferredOrigin);
+        $originNormalization['preferredOriginSource'] = $canonicalPreference['source'];
+        $originNormalization['canonicalConfidence'] = $canonicalPreference['confidence'];
+        $originNormalization['inputOrigin'] = $inputOrigin;
+        $originNormalization['auditSeedUrl'] = $auditSeedUrl;
+        $originNormalization['seedConflict'] = $inputOrigin !== $preferredOrigin;
         $site['issues'] = array_merge($site['issues'], $originNormalization['issues']);
 
         $indexablePages = 0;
+        $hostAliasPages = 0;
         foreach ($pages as &$page) {
-            $page['indexability'] = $this->indexability($page);
+            $page['indexability'] = $this->indexability($page, $preferredOrigin);
+            if ($page['indexability']['status'] === 'host-alias') {
+                $hostAliasPages++;
+            }
             if ($page['indexability']['status'] === 'indexable') {
                 $indexablePages++;
             }
@@ -400,8 +464,10 @@ class SiteAuditor
 
         return [
             'version' => config('audit.version'),
-            'startUrl' => $startUrl,
-            'origin' => $crawlOrigin,
+            'startUrl' => $inputUrl,
+            'auditSeedUrl' => $auditSeedUrl,
+            'inputOrigin' => $inputOrigin,
+            'origin' => $preferredOrigin,
             'auditedAt' => now()->toIso8601String(),
             'maxPages' => $maxPages,
             'site' => [
@@ -412,6 +478,7 @@ class SiteAuditor
                 'redirects' => array_values($redirectedRequests),
                 'linkTargetChecks' => array_values($targetChecks['checks']),
                 'originNormalization' => $originNormalization,
+                'socialImages' => $socialImageDiagnostics,
                 'patterns' => $issuePatterns,
             ],
             'siteIssues' => $site['issues'],
@@ -438,7 +505,9 @@ class SiteAuditor
                 'mixedSchemeLinks' => $crossPage['mixedSchemeLinks'],
                 'robotsBlockedPages' => $robotsBlockedPages,
                 'linkTargetsChecked' => count($targetChecks['checks']),
-                'socialImagesChecked' => $socialImagesChecked,
+                'socialImagesChecked' => $socialImageDiagnostics['checked'],
+                'socialImagesDiscovered' => $socialImageDiagnostics['discovered'],
+                'hostAliasPages' => $hostAliasPages,
                 'maxCrawlDepth' => $crossPage['maxCrawlDepth'],
                 'contextualLinks' => $crossPage['contextualLinks'],
                 'patterns' => count($issuePatterns),
@@ -969,7 +1038,7 @@ class SiteAuditor
         return compact('checks', 'redirectMap', 'redirects', 'siteIssues');
     }
 
-    private function attachSocialImageDiagnostics(array &$pages): int
+    private function attachSocialImageDiagnostics(array &$pages): array
     {
         $urls = [];
 
@@ -981,7 +1050,8 @@ class SiteAuditor
             }
         }
 
-        $urls = array_slice(array_values($urls), 0, 30);
+        $discovered = count($urls);
+        $urls = array_slice(array_values($urls), 0, self::MAX_SOCIAL_IMAGES);
         $results = $this->socialImages->inspect($urls);
 
         foreach ($pages as &$page) {
@@ -1035,7 +1105,11 @@ class SiteAuditor
         }
         unset($page);
 
-        return count($results);
+        return [
+            'checked' => count($results),
+            'discovered' => $discovered,
+            'limit' => self::MAX_SOCIAL_IMAGES,
+        ];
     }
 
     private function addCrossPageChecks(
@@ -1643,7 +1717,181 @@ class SiteAuditor
         return strtolower(explode('-', $code, 2)[0]);
     }
 
-    private function indexability(array $page): array
+    private function resolveAuditSeed(string $inputUrl): array
+    {
+        $inputOrigin = $this->urls->origin($inputUrl);
+        $seedUrl = $inputUrl;
+        $seedOrigin = $inputOrigin;
+        $redirectFinalUrl = $inputUrl;
+        $redirectChain = [];
+        $source = 'input';
+
+        try {
+            [$response, $finalUrl, $redirectChain] = $this->fetchResource(
+                $inputUrl,
+                'text/html,application/xhtml+xml;q=0.9,*/*;q=0.2',
+            );
+
+            $redirectFinalUrl = $finalUrl;
+            $seedUrl = $finalUrl;
+            $seedOrigin = $this->urls->origin($finalUrl);
+            $source = $redirectChain !== [] ? 'redirect' : 'input';
+
+            $contentType = strtolower($response->header('Content-Type'));
+            if (
+                $response->status() >= 200
+                && $response->status() < 300
+                && (
+                    str_contains($contentType, 'text/html')
+                    || str_contains($contentType, 'application/xhtml+xml')
+                )
+                && strlen($response->body()) <= self::MAX_BODY_BYTES
+            ) {
+                $canonical = $this->canonicalFromHtml($finalUrl, $response->body());
+
+                if (
+                    $canonical !== null
+                    && $this->sameOriginFamily($finalUrl, $canonical)
+                    && $this->urls->origin($canonical) !== $this->urls->origin($finalUrl)
+                ) {
+                    $safeCanonical = $this->urls->assertPublic($canonical);
+                    $seedUrl = $safeCanonical;
+                    $seedOrigin = $this->urls->origin($safeCanonical);
+                    $source = 'start-page-canonical';
+                }
+            }
+        } catch (Throwable) {
+            // The normal crawl will report the fetch problem; seed resolution is best-effort.
+        }
+
+        return [
+            'inputUrl' => $inputUrl,
+            'inputOrigin' => $inputOrigin,
+            'seedUrl' => $seedUrl,
+            'seedOrigin' => $seedOrigin,
+            'redirectFinalUrl' => $redirectFinalUrl,
+            'redirectChain' => $redirectChain,
+            'source' => $source,
+        ];
+    }
+
+    private function canonicalFromHtml(string $baseUrl, string $html): ?string
+    {
+        $previous = libxml_use_internal_errors(true);
+        $dom = new DOMDocument();
+        $loaded = $dom->loadHTML($html, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+
+        if (! $loaded) {
+            return null;
+        }
+
+        $xpath = new DOMXPath($dom);
+        $nodes = $xpath->query(
+            "//link[contains(concat(' ', normalize-space(translate(@rel, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')), ' '), ' canonical ')][@href]"
+        );
+        $node = $nodes instanceof DOMNodeList ? $nodes->item(0) : null;
+
+        if (! $node instanceof \DOMElement) {
+            return null;
+        }
+
+        return $this->urls->resolve($baseUrl, $node->getAttribute('href'));
+    }
+
+    private function canonicalOriginPreference(array $pages, string $crawlOrigin, array $seed): array
+    {
+        $counts = [];
+        $total = 0;
+
+        foreach ($pages as $page) {
+            if (empty($page['canonical'])) {
+                continue;
+            }
+
+            try {
+                $origin = $this->urls->origin($page['canonical']);
+            } catch (Throwable) {
+                continue;
+            }
+
+            if (! $this->sameOriginFamily($crawlOrigin, $origin)) {
+                continue;
+            }
+
+            $counts[$origin] = ($counts[$origin] ?? 0) + 1;
+            $total++;
+        }
+
+        if ($counts !== []) {
+            arsort($counts);
+            $origin = (string) array_key_first($counts);
+            $count = (int) $counts[$origin];
+            $confidence = $total > 0 ? $count / $total : 0.0;
+
+            if ($count >= 2 && $confidence >= 0.8) {
+                return [
+                    'origin' => $origin,
+                    'source' => 'sitewide-canonical',
+                    'confidence' => round($confidence, 3),
+                ];
+            }
+        }
+
+        return [
+            'origin' => $crawlOrigin,
+            'source' => $seed['source'] === 'start-page-canonical'
+                ? 'start-page-canonical'
+                : 'crawl-origin',
+            'confidence' => $seed['source'] === 'start-page-canonical' ? 1.0 : null,
+        ];
+    }
+
+    private function sameOriginFamily(string $a, string $b): bool
+    {
+        $hostA = strtolower((string) parse_url($a, PHP_URL_HOST));
+        $hostB = strtolower((string) parse_url($b, PHP_URL_HOST));
+
+        if ($hostA === '' || $hostB === '') {
+            return false;
+        }
+
+        if (filter_var($hostA, FILTER_VALIDATE_IP) || filter_var($hostB, FILTER_VALIDATE_IP)) {
+            return $hostA === $hostB;
+        }
+
+        $familyA = str_starts_with($hostA, 'www.') ? substr($hostA, 4) : $hostA;
+        $familyB = str_starts_with($hostB, 'www.') ? substr($hostB, 4) : $hostB;
+
+        return $familyA === $familyB;
+    }
+
+    private function isPreferredHostAliasCanonical(
+        string $pageUrl,
+        string $canonical,
+        string $preferredOrigin,
+    ): bool {
+        if (! $this->sameOriginFamily($pageUrl, $canonical)) {
+            return false;
+        }
+
+        if ($this->urls->origin($canonical) !== $preferredOrigin) {
+            return false;
+        }
+
+        try {
+            $page = $this->urls->normalize($pageUrl);
+            $target = $this->urls->normalize($canonical);
+        } catch (Throwable) {
+            return false;
+        }
+
+        return (string) parse_url($page, PHP_URL_PATH) === (string) parse_url($target, PHP_URL_PATH)
+            && (string) parse_url($page, PHP_URL_QUERY) === (string) parse_url($target, PHP_URL_QUERY);
+    }
+
+    private function indexability(array $page, string $preferredOrigin): array
     {
         $status = (int) ($page['status'] ?? 0);
 
@@ -1666,6 +1914,14 @@ class SiteAuditor
         if (! empty($page['canonical'])) {
             try {
                 if ($this->urlKey($page['canonical']) !== $this->urlKey($page['url'])) {
+                    if ($this->isPreferredHostAliasCanonical($page['url'], $page['canonical'], $preferredOrigin)) {
+                        return [
+                            'status' => 'host-alias',
+                            'reason' => 'Canonical points to the same page on preferred origin '.$preferredOrigin.
+                                '; this is a host-normalization issue rather than page-level canonicalization.',
+                        ];
+                    }
+
                     return [
                         'status' => 'canonicalized',
                         'reason' => 'Canonical points to '.$page['canonical'].'.',
