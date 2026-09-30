@@ -11,6 +11,19 @@ const summaryDetail = document.querySelector('#summary-detail');
 const siteDiagnostics = document.querySelector('#site-diagnostics');
 const siteDiagnosticsMeta = document.querySelector('#site-diagnostics-meta');
 const siteIssuesList = document.querySelector('#site-issues-list');
+const patternInsights = document.querySelector('#pattern-insights');
+const patternInsightsMeta = document.querySelector('#pattern-insights-meta');
+const patternInsightsList = document.querySelector('#pattern-insights-list');
+const originNormalization = document.querySelector('#origin-normalization');
+const originNormalizationMeta = document.querySelector('#origin-normalization-meta');
+const originNormalizationList = document.querySelector('#origin-normalization-list');
+const compareAuditFile = document.querySelector('#compare-audit-file');
+const auditComparison = document.querySelector('#audit-comparison');
+const comparisonTitle = document.querySelector('#comparison-title');
+const comparisonMeta = document.querySelector('#comparison-meta');
+const comparisonSummary = document.querySelector('#comparison-summary');
+const comparisonDetails = document.querySelector('#comparison-details');
+const comparisonClose = document.querySelector('#comparison-close');
 const resultsBody = document.querySelector('#results-body');
 const severityFilter = document.querySelector('#severity-filter');
 const tableSearch = document.querySelector('#table-search');
@@ -228,6 +241,7 @@ function pageMatches(page) {
     page.description,
     page.lang || '',
     page.canonical || '',
+    ...(page.discovery || []).flatMap((entry) => [entry.type || '', entry.from || '']),
     ...page.hreflangs.flatMap((entry) => [entry.lang, entry.href]),
     ...page.issues.map((issue) => `${issue.code} ${issue.message} ${issue.severity}`),
   ].join(' ').toLowerCase();
@@ -246,7 +260,13 @@ function renderRows() {
     const indexabilityCell = row.querySelector('.indexability-cell');
     const issuesCell = row.querySelector('.issues-cell');
 
-    pageCell.innerHTML = `<a class="page-url" href="${escapeHtml(page.url)}" target="_blank" rel="noreferrer">${escapeHtml(page.url)}</a><div class="page-title">${escapeHtml(page.title || 'No title')}</div>`;
+    const discovery = (page.discovery || []).map((entry) => {
+      const label = String(entry.type || 'unknown').replaceAll('-', ' ');
+      const title = entry.from ? label + ' · ' + entry.from : label;
+      return `<span class="pill" title="${escapeHtml(title)}">${escapeHtml(label)}</span>`;
+    }).join('');
+    pageCell.innerHTML = `<a class="page-url" href="${escapeHtml(page.url)}" target="_blank" rel="noreferrer">${escapeHtml(page.url)}</a><div class="page-title">${escapeHtml(page.title || 'No title')}</div>` +
+      (discovery ? `<div class="discovery-line"><span>Found via</span>${discovery}</div>` : '');
     const detected = page.detectedLang
       ? `<span class="pill detected-lang" title="Detected from visible content · confidence ${Math.round((page.languageConfidence || 0) * 100)}%">detected: ${escapeHtml(page.detectedLang)}</span>`
       : '';
@@ -265,6 +285,186 @@ function renderRows() {
 
     resultsBody.appendChild(row);
   }
+}
+
+function renderPatternInsights(result) {
+  const patterns = result.site?.patterns || [];
+  patternInsightsMeta.textContent = patterns.length
+    ? patterns.length + ' repeated pattern' + (patterns.length === 1 ? '' : 's')
+    : 'No repeated issues';
+  patternInsightsList.innerHTML = patterns.length
+    ? patterns.map((pattern) => {
+        const urls = (pattern.urls || []).slice(0, 12);
+        const more = (pattern.urls || []).length > urls.length
+          ? `<li class="muted">+${(pattern.urls || []).length - urls.length} more URL(s)</li>`
+          : '';
+        return `<article class="pattern-card">
+          <div class="pattern-card-head">
+            <div class="pattern-title"><span class="pill ${escapeHtml(pattern.severity || 'info')}">${escapeHtml(pattern.severity || 'info')}</span>${escapeHtml(pattern.title || pattern.code || 'Repeated issue')}</div>
+            <strong>${pattern.count || 0} pages</strong>
+          </div>
+          <p class="pattern-root">${escapeHtml(pattern.likelyRootCause || '')}</p>
+          <div class="pattern-meta">
+            <span class="pill">${escapeHtml(pattern.category || 'technical')}</span>
+            <span class="pill">${escapeHtml(String(pattern.scope || 'repeated').replaceAll('-', ' '))}</span>
+          </div>
+          <details>
+            <summary>Affected URLs</summary>
+            <ul class="pattern-urls">${urls.map((url) => `<li>${linkHtml(url)}</li>`).join('')}${more}</ul>
+          </details>
+        </article>`;
+      }).join('')
+    : '<span class="no-issues">No issue code repeats across multiple audited pages.</span>';
+  patternInsights.hidden = false;
+}
+
+function renderOriginNormalization(result) {
+  const diagnostics = result.site?.originNormalization || {};
+  const variants = diagnostics.variants || [];
+  originNormalizationMeta.textContent = diagnostics.preferredOrigin
+    ? 'Preferred: ' + diagnostics.preferredOrigin
+    : 'Preferred origin unavailable';
+
+  originNormalizationList.innerHTML = variants.length
+    ? `<div class="origin-list">${variants.map((variant) => {
+        const status = variant.status ? 'HTTP ' + variant.status : 'not reachable';
+        const relation = String(variant.relation || 'unknown').replaceAll('-', ' ');
+        const relationClass = variant.relation === 'direct-nonpreferred' ? 'warning' : (variant.relation === 'redirects-to-preferred' || variant.relation === 'preferred' ? '' : 'info');
+        const final = variant.finalUrl && variant.finalUrl !== variant.url
+          ? linkHtml(variant.finalUrl)
+          : escapeHtml(variant.error || relation);
+        return `<div class="origin-row">
+          <div class="origin-url">${linkHtml(variant.url)}</div>
+          <div class="origin-status"><span class="pill ${relationClass}">${escapeHtml(status)}</span> ${escapeHtml(relation)}</div>
+          <div class="origin-final">${final}</div>
+        </div>`;
+      }).join('')}</div>`
+    : '<span class="no-issues">No origin variants were available to test.</span>';
+  originNormalization.hidden = false;
+}
+
+function comparisonHost(result) {
+  try {
+    const host = new URL(result.startUrl || result.origin).hostname.toLowerCase();
+    return host.replace(/^www\./, '');
+  } catch {
+    return '';
+  }
+}
+
+function auditIssueMap(result) {
+  const map = new Map();
+
+  for (const issue of result.siteIssues || []) {
+    const key = 'site|' + (issue.code || issue.message || 'unknown');
+    map.set(key, { scope: 'Site', url: result.origin || '', ...issue });
+  }
+
+  for (const page of result.pages || []) {
+    for (const issue of page.issues || []) {
+      const key = page.url + '|' + (issue.code || issue.message || 'unknown');
+      map.set(key, { scope: 'Page', url: page.url, ...issue });
+    }
+  }
+
+  return map;
+}
+
+function compareAudits(previous, current) {
+  const previousIssues = auditIssueMap(previous);
+  const currentIssues = auditIssueMap(current);
+  const newIssues = [];
+  const fixedIssues = [];
+  const changedIssues = [];
+
+  for (const [key, issue] of currentIssues) {
+    if (!previousIssues.has(key)) {
+      newIssues.push(issue);
+      continue;
+    }
+
+    const before = previousIssues.get(key);
+    if ((before.severity || '') !== (issue.severity || '') || (before.message || '') !== (issue.message || '')) {
+      changedIssues.push({ before, after: issue });
+    }
+  }
+
+  for (const [key, issue] of previousIssues) {
+    if (!currentIssues.has(key)) fixedIssues.push(issue);
+  }
+
+  const previousPages = new Map((previous.pages || []).map((page) => [page.url, page]));
+  const currentPages = new Map((current.pages || []).map((page) => [page.url, page]));
+  const newPages = [...currentPages.keys()].filter((url) => !previousPages.has(url));
+  const removedPages = [...previousPages.keys()].filter((url) => !currentPages.has(url));
+  const changedPages = [];
+
+  for (const [url, page] of currentPages) {
+    const before = previousPages.get(url);
+    if (!before) continue;
+
+    const changes = [];
+    if ((before.indexability?.status || '') !== (page.indexability?.status || '')) {
+      changes.push('indexability: ' + (before.indexability?.status || 'unknown') + ' → ' + (page.indexability?.status || 'unknown'));
+    }
+    if ((before.canonical || '') !== (page.canonical || '')) {
+      changes.push('canonical changed');
+    }
+    if ((before.title || '') !== (page.title || '')) {
+      changes.push('title changed');
+    }
+
+    if (changes.length) changedPages.push({ url, changes });
+  }
+
+  return { newIssues, fixedIssues, changedIssues, newPages, removedPages, changedPages };
+}
+
+function comparisonIssueItem(issue) {
+  const target = issue.url ? linkHtml(issue.url) : '<strong>Site</strong>';
+  return `${target} — <span class="pill ${escapeHtml(issue.severity || 'info')}">${escapeHtml(issue.severity || 'info')}</span> ${escapeHtml(issue.message || issue.code || 'Issue')}`;
+}
+
+function comparisonList(items, renderer, emptyText) {
+  if (!items.length) return `<p class="muted">${escapeHtml(emptyText)}</p>`;
+  return `<ul>${items.slice(0, 40).map((item) => `<li>${renderer(item)}</li>`).join('')}</ul>`;
+}
+
+function renderComparison(previous, current) {
+  if (!previous || !Array.isArray(previous.pages) || !previous.summary) {
+    throw new Error('This JSON file is not a compatible Multilingual SEO Audit export.');
+  }
+
+  if (comparisonHost(previous) !== comparisonHost(current)) {
+    throw new Error('The previous audit is for a different hostname.');
+  }
+
+  const diff = compareAudits(previous, current);
+  const previousDate = previous.auditedAt ? new Date(previous.auditedAt).toLocaleString() : 'unknown date';
+  const currentDate = current.auditedAt ? new Date(current.auditedAt).toLocaleString() : 'current audit';
+
+  comparisonTitle.textContent = 'Changes since previous audit';
+  comparisonMeta.textContent = previousDate + ' (v' + (previous.version || '?') + ') → ' + currentDate + ' (v' + (current.version || '?') + ') · Compared locally in your browser; the previous file is not uploaded.';
+  comparisonSummary.innerHTML = [
+    ['New issues', diff.newIssues.length, 'bad'],
+    ['Fixed issues', diff.fixedIssues.length, 'good'],
+    ['New pages', diff.newPages.length, ''],
+    ['Removed pages', diff.removedPages.length, ''],
+  ].map(([label, value, type]) => `<div class="comparison-card ${type}"><span>${label}</span><strong>${value}</strong></div>`).join('');
+
+  comparisonDetails.innerHTML = `
+    <div class="comparison-group"><h4>New issues</h4>${comparisonList(diff.newIssues, comparisonIssueItem, 'No new issues.')}</div>
+    <div class="comparison-group"><h4>Fixed issues</h4>${comparisonList(diff.fixedIssues, comparisonIssueItem, 'No fixed issues.')}</div>
+    <div class="comparison-group"><h4>New / removed pages</h4>
+      ${comparisonList(diff.newPages, (url) => '+ ' + linkHtml(url), 'No new pages.')}
+      ${comparisonList(diff.removedPages, (url) => '− ' + linkHtml(url), 'No removed pages.')}
+    </div>
+    <div class="comparison-group"><h4>Changed pages / issues</h4>
+      ${comparisonList(diff.changedPages, (entry) => linkHtml(entry.url) + ' — ' + escapeHtml(entry.changes.join(' · ')), 'No title, canonical or indexability changes on shared URLs.')}
+      ${comparisonList(diff.changedIssues, (entry) => comparisonIssueItem(entry.after) + ' <span class="muted">(changed)</span>', 'No persistent issues changed severity or wording.')}
+    </div>
+  `;
+  auditComparison.hidden = false;
 }
 
 function renderSiteDiagnostics(result) {
@@ -307,6 +507,8 @@ function render(result) {
     summaryDetail.hidden = true;
     summaryDetail.innerHTML = '';
   }
+  renderPatternInsights(result);
+  renderOriginNormalization(result);
   renderSiteDiagnostics(result);
   renderRows();
   results.hidden = false;
@@ -335,6 +537,9 @@ form.addEventListener('submit', async (event) => {
   runButton.disabled = true;
   results.hidden = true;
   siteDiagnostics.hidden = true;
+  patternInsights.hidden = true;
+  originNormalization.hidden = true;
+  auditComparison.hidden = true;
   setStatus(`Auditing up to ${maxPagesInput.value} pages…`);
 
   try {
@@ -369,6 +574,27 @@ summaryDetail?.addEventListener('click', (event) => {
   });
 });
 
+compareAuditFile?.addEventListener('change', async () => {
+  const file = compareAuditFile.files?.[0];
+  if (!file || !latestResult) return;
+
+  try {
+    const previous = JSON.parse(await file.text());
+    renderComparison(previous, latestResult);
+  } catch (error) {
+    comparisonTitle.textContent = 'Comparison could not be created';
+    comparisonMeta.textContent = error.message || 'The selected file could not be read.';
+    comparisonSummary.innerHTML = '';
+    comparisonDetails.innerHTML = '';
+    auditComparison.hidden = false;
+  }
+});
+
+comparisonClose?.addEventListener('click', () => {
+  auditComparison.hidden = true;
+  if (compareAuditFile) compareAuditFile.value = '';
+});
+
 severityFilter.addEventListener('change', renderRows);
 tableSearch.addEventListener('input', renderRows);
 
@@ -382,8 +608,9 @@ downloadCsv.addEventListener('click', () => {
 
   const headers = [
     'Record type', 'Audit generated at', 'Engine version', 'URL', 'Requested URL', 'Status', 'Lang', 'Detected lang', 'Language confidence',
-    'Title', 'Meta description', 'Canonical', 'Indexability', 'Indexability reason', 'Robots', 'X-Robots-Tag', 'Robots.txt allowed',
-    'Redirect final URL', 'Redirect chain', 'Link check final URL', 'Link check error',
+    'Title', 'Meta description', 'Canonical', 'Indexability', 'Indexability reason', 'Discovery sources', 'Discovery details',
+    'Robots', 'X-Robots-Tag', 'Robots.txt allowed', 'Redirect final URL', 'Redirect chain', 'Link check final URL', 'Link check error',
+    'Pattern code', 'Pattern scope', 'Pattern category', 'Pattern root cause', 'Origin relation', 'Origin final URL',
     'Robots.txt matched rule', 'Redirect hops', 'Incoming internal links', 'Outgoing internal links', 'Contextual incoming links',
     'Contextual outgoing links', 'Crawl depth', 'Internal links to redirects', 'In sitemap', 'H1 count', 'H1 text', 'H2 count',
     'Word count', 'Image count', 'Images missing alt', 'Images empty alt', 'Hreflang codes', 'Hreflang targets', 'Hreflang sources',
@@ -394,7 +621,7 @@ downloadCsv.addEventListener('click', () => {
     'Error count', 'Warning count', 'Info count', 'Sitemaps parsed', 'Sitemap URLs discovered', 'Sitemap coverage %',
     'Summary indexable pages', 'Summary noindex pages', 'Summary robots blocked pages', 'Summary redirects', 'Summary redirect chains',
     'Summary orphan candidates', 'Summary duplicate groups', 'Summary links to redirects', 'Summary mixed-scheme links',
-    'Summary link targets checked', 'Summary social images checked', 'Summary contextual links', 'Summary max crawl depth', 'Issues',
+    'Summary link targets checked', 'Summary social images checked', 'Summary contextual links', 'Summary max crawl depth', 'Summary patterns', 'Issues',
   ];
 
   const makeRow = (values) => headers.map((header) => values[header] ?? '');
@@ -427,8 +654,37 @@ downloadCsv.addEventListener('click', () => {
     'Summary social images checked': latestResult.summary?.socialImagesChecked ?? '',
     'Summary contextual links': latestResult.summary?.contextualLinks ?? '',
     'Summary max crawl depth': latestResult.summary?.maxCrawlDepth ?? '',
+    'Summary patterns': latestResult.summary?.patterns ?? '',
     'Issues': siteIssues.map((issue) => issue.severity + ': ' + issue.message).join(' | '),
   }));
+
+  for (const pattern of latestResult.site?.patterns || []) {
+    rows.push(makeRow({
+      'Record type': 'pattern',
+      'Audit generated at': latestResult.auditedAt || '',
+      'Engine version': latestResult.version || '',
+      'URL': (pattern.urls || [])[0] || latestResult.origin,
+      'Pattern code': pattern.code || '',
+      'Pattern scope': pattern.scope || '',
+      'Pattern category': pattern.category || '',
+      'Pattern root cause': pattern.likelyRootCause || '',
+      'Issues': (pattern.severity || 'info') + ': ' + (pattern.title || pattern.code || '') + ' affects ' + (pattern.count || 0) + ' pages',
+    }));
+  }
+
+  for (const variant of latestResult.site?.originNormalization?.variants || []) {
+    rows.push(makeRow({
+      'Record type': 'origin-variant',
+      'Audit generated at': latestResult.auditedAt || '',
+      'Engine version': latestResult.version || '',
+      'URL': variant.url || '',
+      'Status': variant.status || '',
+      'Redirect hops': variant.redirects || 0,
+      'Origin relation': variant.relation || '',
+      'Origin final URL': variant.finalUrl || '',
+      'Issues': variant.error || '',
+    }));
+  }
 
   for (const redirect of latestResult.site?.redirects || []) {
     const chain = redirect.chain || [];
@@ -479,6 +735,8 @@ downloadCsv.addEventListener('click', () => {
       'Canonical': page.canonical || '',
       'Indexability': page.indexability?.status || 'unknown',
       'Indexability reason': page.indexability?.reason || '',
+      'Discovery sources': (page.discovery || []).map((entry) => entry.type || '').join(' | '),
+      'Discovery details': (page.discovery || []).map((entry) => (entry.type || '') + (entry.from ? ' <= ' + entry.from : '')).join(' | '),
       'Robots': page.robots || '',
       'X-Robots-Tag': page.xRobotsTag || '',
       'Robots.txt allowed': page.robotsTxt?.allowed === false ? 'no' : 'yes',
