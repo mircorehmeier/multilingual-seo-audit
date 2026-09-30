@@ -147,12 +147,12 @@
         <article><h3>Hreflang</h3><p>HTML, XML sitemap and HTTP-header alternates, self references, reciprocal targets, indexability and canonical consistency.</p></article>
         <article><h3>Metadata</h3><p>Missing and duplicate titles/descriptions with language-aware duplicate handling and low-severity display heuristics.</p></article>
         <article><h3>Canonical</h3><p>Missing, invalid or multiple canonical tags and pages that canonicalize elsewhere.</p></article>
-        <article><h3>Social</h3><p>Open Graph and Twitter/X metadata plus image URL, status, content type and detectable dimensions.</p></article>
+        <article><h3>Social</h3><p>Open Graph and Twitter/X metadata plus image URL, status, content type, detectable dimensions and explicit check coverage.</p></article>
         <article><h3>Sitemaps & links</h3><p>robots.txt rules, sitemap discovery, crawl coverage, orphan candidates, crawl depth, contextual links and independent checks for uncrawled link targets.</p></article>
         <article><h3>Structured data</h3><p>JSON-LD syntax parsing, discovered schema types and cautious semantic checks for common rich-result structures.</p></article>
         <article><h3>Content quality</h3><p>Exact body-content duplicates, conservative language detection, H1 structure, thin-content heuristics and missing image alt attributes.</p></article>
-        <article><h3>Redirects</h3><p>Redirect chains, temporary redirects, sitemap redirects and same-host links using a different scheme or port.</p></article>
-        <article><h3>Patterns & provenance</h3><p>Repeated issue root causes plus the sitemap, internal-link, hreflang, canonical, redirect or start signal that brought each URL into the audit.</p></article>
+        <article><h3>Redirects</h3><p>Redirect chains, temporary redirects, sitemap redirects, host aliases and same-host links using a different scheme or port.</p></article>
+        <article><h3>Patterns & provenance</h3><p>Repeated issue root causes, canonical-preferred host inference, and the sitemap, internal-link, hreflang, canonical, redirect or start signal that brought each URL into the audit.</p></article>
         <article><h3>Change tracking</h3><p>Compare a previous JSON export locally to see new and fixed issues, new or removed pages, and important page-level changes.</p></article>
       </div>
     </section>
