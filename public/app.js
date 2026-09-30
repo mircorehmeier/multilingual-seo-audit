@@ -53,7 +53,7 @@ const SUMMARY_HELP = {
   linkTargetsChecked: 'Additional internal link targets checked outside the normal page crawl quota, mainly to catch hidden 4xx/redirect targets.',
   contextualLinks: 'Unique internal links found inside main/article content, excluding navigation and footer links.',
   maxCrawlDepth: 'Highest internal-link click depth reached from the first audited final page, where depth 0 is the starting page.',
-  socialImagesChecked: 'Unique Open Graph or Twitter/X image URLs fetched to verify status, content type and detectable dimensions.',
+  socialImagesChecked: 'Unique Open Graph or Twitter/X image URLs fetched to verify status, content type and detectable dimensions. The detail view also shows total discovered coverage.',
 };
 
 function summaryCard(key, label, value, type = '') {
@@ -237,11 +237,14 @@ function summaryDetailContent(key, result) {
         if (image?.url) images.set(image.url, image);
       }
     }
-    title = `Social images checked · ${summaryData.socialImagesChecked ?? images.size}`;
-    body = detailList([...images.values()].map((image) => {
-      const dimensions = image.width && image.height ? ` · ${image.width}×${image.height}` : '';
-      return `${linkHtml(image.url)} — HTTP ${image.status || 'failed'} · ${escapeHtml(image.contentType || 'unknown type')}${dimensions}`;
-    }), 'No social-image URLs were available to check.');
+    const discovered = summaryData.socialImagesDiscovered ?? result.site?.socialImages?.discovered ?? images.size;
+    const checked = summaryData.socialImagesChecked ?? result.site?.socialImages?.checked ?? images.size;
+    title = `Social images checked · ${checked}`;
+    body = `<p><strong>Coverage:</strong> ${checked} of ${discovered} unique social-image URLs checked${checked < discovered ? ' (safety limit reached)' : ' (complete for this audit)'}.</p>` +
+      detailList([...images.values()].map((image) => {
+        const dimensions = image.width && image.height ? ` · ${image.width}×${image.height}` : '';
+        return `${linkHtml(image.url)} — HTTP ${image.status || 'failed'} · ${escapeHtml(image.contentType || 'unknown type')}${dimensions}`;
+      }), 'No social-image URLs were available to check.');
   } else {
     title = 'Metric details';
   }
@@ -357,11 +360,24 @@ function renderPatternInsights(result) {
 function renderOriginNormalization(result) {
   const diagnostics = result.site?.originNormalization || {};
   const variants = diagnostics.variants || [];
+  const sourceLabels = {
+    'sitewide-canonical': 'sitewide canonicals',
+    'start-page-canonical': 'start-page canonical',
+    'crawl-origin': 'crawl origin',
+  };
+  const source = sourceLabels[diagnostics.preferredOriginSource] || diagnostics.preferredOriginSource || 'unknown source';
+  const confidence = diagnostics.canonicalConfidence != null
+    ? ' · ' + Math.round(Number(diagnostics.canonicalConfidence) * 100) + '% canonical agreement'
+    : '';
   originNormalizationMeta.textContent = diagnostics.preferredOrigin
-    ? 'Preferred: ' + diagnostics.preferredOrigin
+    ? 'Preferred: ' + diagnostics.preferredOrigin + ' · ' + source + confidence
     : 'Preferred origin unavailable';
 
-  originNormalizationList.innerHTML = variants.length
+  const seedNote = diagnostics.seedConflict
+    ? `<p class="origin-seed-note"><strong>Audit seed normalized:</strong> ${linkHtml(diagnostics.auditSeedUrl || diagnostics.preferredOrigin)}. The entered origin ${escapeHtml(diagnostics.inputOrigin || '')} differs from the canonical-preferred origin.</p>`
+    : '';
+
+  originNormalizationList.innerHTML = seedNote + (variants.length
     ? `<div class="origin-list">${variants.map((variant) => {
         const status = variant.status ? 'HTTP ' + variant.status : 'not reachable';
         const relation = String(variant.relation || 'unknown').replaceAll('-', ' ');
@@ -375,7 +391,7 @@ function renderOriginNormalization(result) {
           <div class="origin-final">${final}</div>
         </div>`;
       }).join('')}</div>`
-    : '<span class="no-issues">No origin variants were available to test.</span>';
+    : '<span class="no-issues">No origin variants were available to test.</span>');
   originNormalization.hidden = false;
 }
 
@@ -647,6 +663,7 @@ downloadCsv.addEventListener('click', () => {
     'Title', 'Meta description', 'Canonical', 'Indexability', 'Indexability reason', 'Discovery sources', 'Discovery details',
     'Robots', 'X-Robots-Tag', 'Robots.txt allowed', 'Redirect final URL', 'Redirect chain', 'Link check final URL', 'Link check error',
     'Pattern code', 'Pattern scope', 'Pattern category', 'Pattern root cause', 'Origin relation', 'Origin final URL',
+    'Input origin', 'Audit seed URL', 'Preferred origin', 'Preferred origin source', 'Canonical origin confidence',
     'Robots.txt matched rule', 'Redirect hops', 'Incoming internal links', 'Outgoing internal links', 'Contextual incoming links',
     'Contextual outgoing links', 'Crawl depth', 'Internal links to redirects', 'In sitemap', 'H1 count', 'H1 text', 'H2 count',
     'Word count', 'Image count', 'Images missing alt', 'Images empty alt', 'Hreflang codes', 'Hreflang targets', 'Hreflang sources',
@@ -657,7 +674,7 @@ downloadCsv.addEventListener('click', () => {
     'Error count', 'Warning count', 'Info count', 'Sitemaps parsed', 'Sitemap URLs discovered', 'Sitemap coverage %',
     'Summary indexable pages', 'Summary noindex pages', 'Summary robots blocked pages', 'Summary redirects', 'Summary redirect chains',
     'Summary orphan candidates', 'Summary duplicate groups', 'Summary links to redirects', 'Summary mixed-scheme links',
-    'Summary link targets checked', 'Summary social images checked', 'Summary contextual links', 'Summary max crawl depth', 'Summary patterns', 'Issues',
+    'Summary link targets checked', 'Summary social images checked', 'Summary social images discovered', 'Summary contextual links', 'Summary max crawl depth', 'Summary host alias pages', 'Summary patterns', 'Issues',
   ];
 
   const makeRow = (values) => headers.map((header) => values[header] ?? '');
@@ -688,9 +705,16 @@ downloadCsv.addEventListener('click', () => {
     'Summary mixed-scheme links': latestResult.summary?.mixedSchemeLinks ?? '',
     'Summary link targets checked': latestResult.summary?.linkTargetsChecked ?? '',
     'Summary social images checked': latestResult.summary?.socialImagesChecked ?? '',
+    'Summary social images discovered': latestResult.summary?.socialImagesDiscovered ?? '',
     'Summary contextual links': latestResult.summary?.contextualLinks ?? '',
     'Summary max crawl depth': latestResult.summary?.maxCrawlDepth ?? '',
+    'Summary host alias pages': latestResult.summary?.hostAliasPages ?? '',
     'Summary patterns': latestResult.summary?.patterns ?? '',
+    'Input origin': latestResult.inputOrigin || '',
+    'Audit seed URL': latestResult.auditSeedUrl || '',
+    'Preferred origin': latestResult.site?.originNormalization?.preferredOrigin || latestResult.origin || '',
+    'Preferred origin source': latestResult.site?.originNormalization?.preferredOriginSource || '',
+    'Canonical origin confidence': latestResult.site?.originNormalization?.canonicalConfidence ?? '',
     'Issues': siteIssues.map((issue) => issue.severity + ': ' + issue.message).join(' | '),
   }));
 
@@ -718,6 +742,11 @@ downloadCsv.addEventListener('click', () => {
       'Redirect hops': variant.redirects || 0,
       'Origin relation': variant.relation || '',
       'Origin final URL': variant.finalUrl || '',
+      'Input origin': latestResult.inputOrigin || '',
+      'Audit seed URL': latestResult.auditSeedUrl || '',
+      'Preferred origin': latestResult.site?.originNormalization?.preferredOrigin || latestResult.origin || '',
+      'Preferred origin source': latestResult.site?.originNormalization?.preferredOriginSource || '',
+      'Canonical origin confidence': latestResult.site?.originNormalization?.canonicalConfidence ?? '',
       'Issues': variant.error || '',
     }));
   }
