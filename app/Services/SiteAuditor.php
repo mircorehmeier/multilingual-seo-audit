@@ -26,6 +26,8 @@ class SiteAuditor
         private readonly HtmlAuditor $html,
         private readonly RobotsPolicy $robotsPolicy,
         private readonly SocialImageInspector $socialImages,
+        private readonly AuditPatternAnalyzer $patterns,
+        private readonly OriginInspector $originInspector,
     ) {
     }
 
@@ -44,8 +46,9 @@ class SiteAuditor
         $site = $this->discoverSiteMetadata($crawlOrigin);
         $sitemapSeedUrls = $site['seedUrls'];
         $sitemapHreflangs = $site['sitemapHreflangs'];
+        $sitemapSources = $site['sitemapSources'];
         $robotsGroups = $site['robotsGroups'];
-        unset($site['seedUrls'], $site['sitemapHreflangs'], $site['robotsGroups']);
+        unset($site['seedUrls'], $site['sitemapHreflangs'], $site['sitemapSources'], $site['robotsGroups']);
 
         $queue = [$startUrl];
         $queued = [$this->urlKey($startUrl) => true];
@@ -54,9 +57,38 @@ class SiteAuditor
         $redirectMap = [];
         $redirectedRequests = [];
         $pages = [];
+        $discovery = [];
+
+        $this->recordDiscovery($discovery, $startUrl, 'start', null);
+
+        $enqueue = function (string $url, string $type, ?string $from = null) use (
+            &$queue,
+            &$queued,
+            &$visited,
+            &$discovery,
+            &$crawlOrigin,
+        ): void {
+            if (! $this->urls->sameOrigin($crawlOrigin, $url)) {
+                return;
+            }
+
+            $this->recordDiscovery($discovery, $url, $type, $from);
+            $key = $this->urlKey($url);
+
+            if (isset($queued[$key]) || isset($visited[$key])) {
+                return;
+            }
+
+            $queued[$key] = true;
+            array_unshift($queue, $url);
+        };
 
         foreach ($sitemapSeedUrls as $seedUrl) {
             $key = $this->urlKey($seedUrl);
+            foreach ($sitemapSources[$key] ?? [] as $sourceSitemap) {
+                $this->recordDiscovery($discovery, $seedUrl, 'sitemap', $sourceSitemap);
+            }
+
             if (! isset($queued[$key])) {
                 $queued[$key] = true;
                 $queue[] = $seedUrl;
@@ -110,21 +142,26 @@ class SiteAuditor
                 $response = $responses[$index] ?? null;
 
                 if ($response instanceof Throwable || ! $response instanceof Response) {
-                    $pages[] = $this->failedPage(
+                    $page = $this->failedPage(
                         $requestedUrl,
                         $response instanceof Throwable ? $response->getMessage() : 'Request failed.',
                     );
+                    $page['discovery'] = $this->discoveryEntries($discovery, $requestedUrl);
+                    $pages[] = $page;
                     continue;
                 }
 
                 try {
                     [$response, $finalUrl, $redirectChain] = $this->followRedirects($requestedUrl, $response);
                 } catch (Throwable $exception) {
-                    $pages[] = $this->failedPage($requestedUrl, $exception->getMessage());
+                    $page = $this->failedPage($requestedUrl, $exception->getMessage());
+                    $page['discovery'] = $this->discoveryEntries($discovery, $requestedUrl);
+                    $pages[] = $page;
                     continue;
                 }
 
                 if ($redirectChain !== []) {
+                    $this->recordDiscovery($discovery, $finalUrl, 'redirect', $requestedUrl);
                     $redirectedRequests[$this->urlKey($requestedUrl)] = [
                         'requestedUrl' => $requestedUrl,
                         'finalUrl' => $finalUrl,
@@ -160,6 +197,7 @@ class SiteAuditor
                     $page = $this->failedPage($finalUrl, 'HTML response exceeds the 2.5 MB audit limit.');
                     $page['status'] = $response->status();
                     $page['contentType'] = $contentType;
+                    $page['discovery'] = $this->discoveryEntries($discovery, $requestedUrl, $finalUrl);
                     $pages[] = $page;
                     $seenFinal[$finalKey] = true;
                     continue;
@@ -182,6 +220,7 @@ class SiteAuditor
 
                 $page['requestedUrl'] = $requestedUrl;
                 $page['redirectChain'] = $redirectChain;
+                $page['discovery'] = $this->discoveryEntries($discovery, $requestedUrl, $finalUrl);
                 $page['robotsTxt'] = $this->robotsPolicy->decision($finalUrl, $robotsGroups, 'Googlebot');
 
                 if (! $page['robotsTxt']['allowed']) {
@@ -239,26 +278,54 @@ class SiteAuditor
                 $pages[] = $page;
                 $seenFinal[$finalKey] = true;
 
-                $discovered = array_merge(
-                    $page['links'],
-                    array_column($page['hreflangs'], 'href'),
-                );
-
-                foreach ($discovered as $link) {
-                    if (! $this->urls->sameOrigin($crawlOrigin, $link)) {
+                foreach ($page['links'] as $link) {
+                    try {
+                        if ($this->urlKey($link) === $finalKey) {
+                            continue;
+                        }
+                    } catch (Throwable) {
                         continue;
                     }
 
-                    $key = $this->urlKey($link);
-                    if (isset($queued[$key]) || isset($visited[$key])) {
+                    $enqueue($link, 'internal-link', $finalUrl);
+                }
+
+                foreach ($page['hreflangs'] as $alternate) {
+                    if (empty($alternate['href'])) {
                         continue;
                     }
 
-                    $queued[$key] = true;
-                    array_unshift($queue, $link);
+                    try {
+                        if ($this->urlKey($alternate['href']) === $finalKey) {
+                            continue;
+                        }
+                    } catch (Throwable) {
+                        continue;
+                    }
+
+                    $enqueue($alternate['href'], 'hreflang', $finalUrl);
+                }
+
+                if (! empty($page['canonical'])) {
+                    try {
+                        if ($this->urlKey($page['canonical']) !== $finalKey) {
+                            $enqueue($page['canonical'], 'canonical', $finalUrl);
+                        }
+                    } catch (Throwable) {
+                        // Canonical validity is reported separately.
+                    }
                 }
             }
         }
+
+        foreach ($pages as &$page) {
+            $page['discovery'] = $this->discoveryEntries(
+                $discovery,
+                (string) ($page['requestedUrl'] ?? $page['url']),
+                (string) $page['url'],
+            );
+        }
+        unset($page);
 
         $targetChecks = $this->checkUncrawledInternalLinks($pages, $crawlOrigin, $redirectMap);
         foreach ($targetChecks['redirectMap'] as $key => $entry) {
@@ -279,6 +346,9 @@ class SiteAuditor
         );
 
         $site['issues'] = array_merge($site['issues'], $targetChecks['siteIssues'], $crossPage['siteIssues']);
+
+        $originNormalization = $this->originInspector->inspect($startUrl, $crawlOrigin);
+        $site['issues'] = array_merge($site['issues'], $originNormalization['issues']);
 
         $indexablePages = 0;
         foreach ($pages as &$page) {
@@ -326,6 +396,8 @@ class SiteAuditor
         sort($languageList);
         sort($hreflangList);
 
+        $issuePatterns = $this->patterns->analyze($pages);
+
         return [
             'version' => config('audit.version'),
             'startUrl' => $startUrl,
@@ -339,6 +411,8 @@ class SiteAuditor
                 'crawlCoverage' => $crossPage['crawlCoverage'],
                 'redirects' => array_values($redirectedRequests),
                 'linkTargetChecks' => array_values($targetChecks['checks']),
+                'originNormalization' => $originNormalization,
+                'patterns' => $issuePatterns,
             ],
             'siteIssues' => $site['issues'],
             'pages' => $pages,
@@ -367,6 +441,7 @@ class SiteAuditor
                 'socialImagesChecked' => $socialImagesChecked,
                 'maxCrawlDepth' => $crossPage['maxCrawlDepth'],
                 'contextualLinks' => $crossPage['contextualLinks'],
+                'patterns' => count($issuePatterns),
             ],
         ];
     }
@@ -422,6 +497,7 @@ class SiteAuditor
         $validSitemaps = [];
         $pageUrls = [];
         $sitemapHreflangs = [];
+        $sitemapSources = [];
 
         while ($queue !== [] && count($processed) < self::MAX_SITEMAPS && count($pageUrls) < self::MAX_SITEMAP_URLS) {
             $candidate = array_shift($queue);
@@ -513,6 +589,7 @@ class SiteAuditor
 
                 $pageKey = $this->urlKey($pageUrl);
                 $pageUrls[$pageKey] = $pageUrl;
+                $sitemapSources[$pageKey][$this->urlKey($finalUrl)] = $finalUrl;
 
                 foreach ($parsed['hreflangs'][$pageKey] ?? [] as $alternate) {
                     $alternateKey = strtolower($alternate['lang']).'|'.$this->urlKey($alternate['href']);
@@ -527,6 +604,10 @@ class SiteAuditor
 
         foreach ($sitemapHreflangs as $key => $alternates) {
             $sitemapHreflangs[$key] = array_values($alternates);
+        }
+
+        foreach ($sitemapSources as $key => $sources) {
+            $sitemapSources[$key] = array_values($sources);
         }
 
         if ($validSitemaps === []) {
@@ -553,6 +634,7 @@ class SiteAuditor
             'sitemaps' => array_values($validSitemaps),
             'sitemapUrlsDiscovered' => count($pageUrls),
             'sitemapHreflangs' => $sitemapHreflangs,
+            'sitemapSources' => $sitemapSources,
             'seedUrls' => array_values($pageUrls),
             'issues' => $issues,
         ];
@@ -1617,6 +1699,62 @@ class SiteAuditor
         return in_array(strtolower($needle), $tokens, true);
     }
 
+    private function recordDiscovery(
+        array &$discovery,
+        string $url,
+        string $type,
+        ?string $from,
+    ): void {
+        try {
+            $key = $this->urlKey($url);
+        } catch (Throwable) {
+            return;
+        }
+
+        $entryKey = $type.'|'.($from ?? '');
+        $discovery[$key][$entryKey] = [
+            'type' => $type,
+            'from' => $from,
+        ];
+    }
+
+    private function discoveryEntries(array $discovery, string ...$urls): array
+    {
+        $entries = [];
+
+        foreach ($urls as $url) {
+            if ($url === '') {
+                continue;
+            }
+
+            try {
+                $key = $this->urlKey($url);
+            } catch (Throwable) {
+                continue;
+            }
+
+            foreach ($discovery[$key] ?? [] as $entryKey => $entry) {
+                $entries[$entryKey] = $entry;
+            }
+        }
+
+        $values = array_values($entries);
+        usort($values, static function (array $a, array $b): int {
+            $order = [
+                'start' => 0,
+                'sitemap' => 1,
+                'internal-link' => 2,
+                'hreflang' => 3,
+                'canonical' => 4,
+                'redirect' => 5,
+            ];
+
+            return ($order[$a['type']] ?? 99) <=> ($order[$b['type']] ?? 99);
+        });
+
+        return $values;
+    }
+
     private function userAgent(): string
     {
         return self::USER_AGENT_PREFIX.config('audit.version').' (+https://github.com/mircorehmeier/multilingual-seo-audit)';
@@ -1692,6 +1830,7 @@ class SiteAuditor
             ]],
             'links' => [],
             'linkDetails' => [],
+            'discovery' => [],
         ];
     }
 
