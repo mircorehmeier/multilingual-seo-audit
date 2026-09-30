@@ -52,6 +52,8 @@
           <p id="result-meta" class="muted">—</p>
         </div>
         <div class="actions">
+          <label class="secondary file-action" for="compare-audit-file">Compare previous JSON</label>
+          <input id="compare-audit-file" class="sr-only" type="file" accept="application/json,.json">
           <button id="download-json" class="secondary" type="button">Export JSON</button>
           <button id="download-csv" class="secondary" type="button">Export CSV</button>
         </div>
@@ -60,6 +62,43 @@
       <div id="summary" class="summary-grid" aria-label="Audit summary"></div>
       <p class="summary-hint">Click any metric for an explanation and the URLs or checks behind that value.</p>
       <div id="summary-detail" class="summary-detail" hidden aria-live="polite"></div>
+
+      <div class="intelligence-grid">
+        <section id="pattern-insights" class="intelligence-panel" hidden>
+          <div class="intelligence-heading">
+            <div>
+              <p class="eyebrow">Repeated patterns</p>
+              <h3>Likely shared root causes</h3>
+            </div>
+            <span id="pattern-insights-meta" class="muted"></span>
+          </div>
+          <div id="pattern-insights-list"></div>
+        </section>
+
+        <section id="origin-normalization" class="intelligence-panel" hidden>
+          <div class="intelligence-heading">
+            <div>
+              <p class="eyebrow">URL normalization</p>
+              <h3>Origin consolidation</h3>
+            </div>
+            <span id="origin-normalization-meta" class="muted"></span>
+          </div>
+          <div id="origin-normalization-list"></div>
+        </section>
+      </div>
+
+      <section id="audit-comparison" class="comparison-panel" hidden aria-live="polite">
+        <div class="intelligence-heading">
+          <div>
+            <p class="eyebrow">Audit comparison</p>
+            <h3 id="comparison-title">Changes since previous audit</h3>
+          </div>
+          <button id="comparison-close" class="summary-detail-close" type="button" aria-label="Close comparison">×</button>
+        </div>
+        <p id="comparison-meta" class="muted"></p>
+        <div id="comparison-summary" class="comparison-summary"></div>
+        <div id="comparison-details" class="comparison-details"></div>
+      </section>
 
       <div id="site-diagnostics" class="site-diagnostics" hidden>
         <div><strong>Site-level checks</strong><span id="site-diagnostics-meta" class="muted"></span></div>
