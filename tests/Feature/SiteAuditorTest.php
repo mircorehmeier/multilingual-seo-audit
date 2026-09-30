@@ -280,6 +280,9 @@ XML;
         $this->assertArrayHasKey('url', $result['site']['linkTargetChecks'][0]);
         $this->assertArrayHasKey('status', $result['site']['linkTargetChecks'][0]);
         $this->assertSame(1, $result['summary']['socialImagesChecked']);
+        $this->assertSame(1, $result['summary']['socialImagesDiscovered']);
+        $this->assertSame(1, $result['site']['socialImages']['checked']);
+        $this->assertSame(1, $result['site']['socialImages']['discovered']);
         $this->assertGreaterThanOrEqual(2, $result['summary']['contextualLinks']);
         $this->assertGreaterThanOrEqual(1, $result['summary']['maxCrawlDepth']);
 
@@ -311,6 +314,114 @@ XML;
         $this->assertSame(1, $home['socialImages']['openGraph']['height']);
         $this->assertSame(0, $home['internalLinks']['crawlDepth']);
         $this->assertSame(1, $blocked['internalLinks']['crawlDepth']);
+    }
+
+
+    public function test_canonical_preferred_origin_is_used_before_sitemap_discovery(): void
+    {
+        $page = static function (string $lang, string $path, string $title, string $otherPath): string {
+            $otherLang = $lang === 'en' ? 'de' : 'en';
+
+            return <<<HTML
+<!doctype html>
+<html lang="{$lang}">
+<head>
+<title>{$title}</title>
+<meta name="description" content="A complete description for {$title} used to verify preferred-origin discovery and multilingual crawling behavior.">
+<link rel="canonical" href="https://1.1.1.1{$path}">
+<link rel="alternate" hreflang="en" href="https://1.1.1.1/en/">
+<link rel="alternate" hreflang="de" href="https://1.1.1.1/de/">
+<meta property="og:title" content="{$title}">
+<meta property="og:description" content="A useful social description for {$title}.">
+<meta property="og:image" content="https://1.1.1.1/share.png">
+<meta property="og:url" content="https://1.1.1.1{$path}">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="{$title}">
+<meta name="twitter:description" content="A useful social description for {$title}.">
+<meta name="twitter:image" content="https://1.1.1.1/share.png">
+</head>
+<body><main>
+<h1>{$title}</h1>
+<p>This page contains enough useful content to exercise preferred origin inference, sitemap discovery, canonical handling, language alternates and internal navigation in the audit regression fixture without relying on external services.</p>
+<a href="{$otherPath}">{$otherLang}</a>
+</main></body>
+</html>
+HTML;
+        };
+
+        $inputHtml = <<<'HTML'
+<!doctype html>
+<html lang="en">
+<head>
+<title>Alias entry page</title>
+<meta name="description" content="Alias entry page used to test canonical preferred-origin inference before sitemap discovery.">
+<link rel="canonical" href="https://1.1.1.1/en/">
+</head>
+<body><main><h1>Alias entry page</h1><p>This entry origin serves HTTP 200 but declares the HTTPS origin as canonical.</p></main></body>
+</html>
+HTML;
+
+        $sitemap = <<<'XML'
+<?xml version="1.0"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://1.1.1.1/en/</loc></url>
+  <url><loc>https://1.1.1.1/de/</loc></url>
+</urlset>
+XML;
+
+        $sharePng = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZQMcAAAAASUVORK5CYII=');
+
+        Http::fake(function ($request) use ($inputHtml, $sitemap, $page, $sharePng) {
+            return match ($request->url()) {
+                'http://1.1.1.1/' => Http::response($inputHtml, 200, ['Content-Type' => 'text/html']),
+                'https://1.1.1.1/robots.txt' => Http::response(
+                    "User-agent: *\nSitemap: https://1.1.1.1/sitemap.xml\n",
+                    200,
+                    ['Content-Type' => 'text/plain'],
+                ),
+                'https://1.1.1.1/sitemap.xml' => Http::response($sitemap, 200, ['Content-Type' => 'application/xml']),
+                'https://1.1.1.1/' => Http::response(
+                    $page('en', '/en/', 'Preferred HTTPS home page', '/de/'),
+                    200,
+                    ['Content-Type' => 'text/html'],
+                ),
+                'https://1.1.1.1/en/' => Http::response(
+                    $page('en', '/en/', 'Preferred HTTPS English page', '/de/'),
+                    200,
+                    ['Content-Type' => 'text/html'],
+                ),
+                'https://1.1.1.1/de/' => Http::response(
+                    $page('de', '/de/', 'Bevorzugte deutsche HTTPS Seite', '/en/'),
+                    200,
+                    ['Content-Type' => 'text/html'],
+                ),
+                'https://1.1.1.1/share.png' => Http::response($sharePng, 200, ['Content-Type' => 'image/png']),
+                default => Http::response('', 404, ['Content-Type' => 'text/html']),
+            };
+        });
+
+        $result = app(SiteAuditor::class)->audit('http://1.1.1.1/', 10);
+
+        $this->assertSame('http://1.1.1.1/', $result['startUrl']);
+        $this->assertSame('http://1.1.1.1', $result['inputOrigin']);
+        $this->assertSame('https://1.1.1.1/en/', $result['auditSeedUrl']);
+        $this->assertSame('https://1.1.1.1', $result['origin']);
+        $this->assertSame(2, $result['summary']['sitemapUrls']);
+        $this->assertSame(2, $result['summary']['indexablePages']);
+        $this->assertSame(0, $result['summary']['hostAliasPages']);
+        $this->assertSame(1, $result['summary']['socialImagesDiscovered']);
+        $this->assertSame(1, $result['summary']['socialImagesChecked']);
+        $this->assertTrue($result['site']['originNormalization']['seedConflict']);
+        $this->assertSame('sitewide-canonical', $result['site']['originNormalization']['preferredOriginSource']);
+        $this->assertSame(1.0, $result['site']['originNormalization']['canonicalConfidence']);
+
+        foreach ($result['pages'] as $auditedPage) {
+            $this->assertSame('indexable', $auditedPage['indexability']['status']);
+        }
+
+        $siteIssueCodes = array_column($result['siteIssues'], 'code');
+        $this->assertContains('origin_variant_direct_200', $siteIssueCodes);
+        $this->assertNotContains('canonical_origin_conflict', $siteIssueCodes);
     }
 
 }

@@ -2,7 +2,7 @@
 
 **Live demo:** https://seo-audit.rehmeier.es/
 
-An open-source multilingual technical SEO auditor built with **Laravel 13** and PHP. Current application version: **0.7.1**.
+An open-source multilingual technical SEO auditor built with **Laravel 13** and PHP. Current application version: **0.8.0**.
 
 It crawls a same-origin website and reports concrete technical issues instead of inventing an opaque SEO score.
 
@@ -18,8 +18,8 @@ It crawls a same-origin website and reports concrete technical issues instead of
 - missing and duplicate titles
 - missing and duplicate meta descriptions
 - title/meta display-length heuristics with deliberately conservative, lower-noise severity rules
-- Open Graph metadata plus image status/content-type/dimension checks
-- Twitter/X card metadata plus image status/content-type/dimension checks
+- Open Graph metadata plus image status/content-type/dimension checks, with explicit discovered-vs-checked coverage
+- Twitter/X card metadata plus image status/content-type/dimension checks, with explicit discovered-vs-checked coverage
 - JSON-LD syntax parsing, discovered schema types and cautious semantic checks for common rich-result structures, while treating @id-only graph references as valid references
 - robots.txt discovery plus Googlebot Allow/Disallow evaluation
 - XML sitemap discovery including sitemap hreflang
@@ -41,6 +41,8 @@ It crawls a same-origin website and reports concrete technical issues instead of
 - repeated-issue pattern grouping with likely shared/template-level root causes
 - URL discovery provenance (start URL, sitemap, internal link, hreflang, canonical and redirect), with repeated sources grouped into compact counts such as `internal links (5)`
 - preferred-origin normalization checks across HTTP/HTTPS and www/non-www variants
+- canonical-host inference before sitemap discovery, so audits started on a 200-serving alias can switch to the canonical-preferred origin instead of misclassifying every page
+- host-alias canonicalization distinguished from genuine page-to-page canonicalization
 - local audit-to-audit JSON comparison for new/fixed issues and added/removed/changed pages
 - CSV and JSON exports
 - self-describing CSV exports with audit timestamp, engine version, redirect records, origin variants, repeated patterns, URL discovery provenance, extra link-check records, robots access, hreflang source, crawl depth, social-image diagnostics, heading counts and JSON-LD diagnostics
@@ -173,7 +175,7 @@ Composer + Laravel deployment
 - raw server-returned HTML only; JavaScript rendering is not included
 - content-language detection is intentionally conservative and currently covers EN, DE, ES, PT, FR, IT and NL
 - independent internal-link target checks are capped at 50 URLs beyond the normal page crawl quota
-- social-image inspection is capped at 30 unique image URLs and only reports dimensions when they can be determined safely from the fetched response
+- social-image inspection is capped at 75 unique image URLs and explicitly reports discovered-vs-checked coverage; dimensions are reported only when they can be determined safely from the fetched response
 - sitemap discovery is capped at 8 sitemap files and 1,000 discovered URLs per audit
 - structured-data semantic checks are deliberately partial and do not replace Google's Rich Results Test
 
