@@ -424,4 +424,120 @@ XML;
         $this->assertNotContains('canonical_origin_conflict', $siteIssueCodes);
     }
 
+
+    public function test_staging_mode_treats_intentional_noindex_as_expected_and_excludes_it_from_normal_counts(): void
+    {
+        $page = static function (string $path, string $title): string {
+            return <<<HTML
+<!doctype html>
+<html lang="en">
+<head>
+<title>{$title}</title>
+<meta name="description" content="A complete staging description for {$title} that is long enough for the audit regression fixture.">
+<meta name="robots" content="noindex,nofollow">
+<link rel="canonical" href="https://1.1.1.1{$path}">
+<meta property="og:title" content="{$title}">
+<meta property="og:description" content="Staging social description">
+<meta property="og:image" content="https://1.1.1.1/share.png">
+<meta property="og:url" content="https://1.1.1.1{$path}">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="{$title}">
+<meta name="twitter:description" content="Staging social description">
+<meta name="twitter:image" content="https://1.1.1.1/share.png">
+</head>
+<body><main><h1>{$title}</h1><p>This staging page contains enough visible content for the audit fixture and is intentionally protected from indexing before publication. The content is complete enough to avoid unrelated thin-content observations during the test.</p></main></body>
+</html>
+HTML;
+        };
+
+        $sitemap = '<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'.
+            '<url><loc>https://1.1.1.1/</loc></url>'.
+            '<url><loc>https://1.1.1.1/about/</loc></url>'.
+            '</urlset>';
+
+        $sharePng = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZQMcAAAAASUVORK5CYII=');
+
+        Http::fake(function ($request) use ($page, $sitemap, $sharePng) {
+            return match ($request->url()) {
+                'https://1.1.1.1/robots.txt' => Http::response(
+                    "User-agent: *\nSitemap: https://1.1.1.1/sitemap.xml\n",
+                    200,
+                    ['Content-Type' => 'text/plain'],
+                ),
+                'https://1.1.1.1/sitemap.xml' => Http::response($sitemap, 200, ['Content-Type' => 'application/xml']),
+                'https://1.1.1.1/' => Http::response($page('/', 'Staging home page for audit testing'), 200, ['Content-Type' => 'text/html']),
+                'https://1.1.1.1/about/' => Http::response($page('/about/', 'Staging about page for audit testing'), 200, ['Content-Type' => 'text/html']),
+                'https://1.1.1.1/share.png' => Http::response($sharePng, 200, ['Content-Type' => 'image/png']),
+                default => Http::response('', 404, ['Content-Type' => 'text/html']),
+            };
+        });
+
+        $result = app(SiteAuditor::class)->audit('https://1.1.1.1/', 10, 'staging');
+
+        $this->assertSame('staging', $result['environment']);
+        $this->assertSame('protected', $result['site']['environment']['status']);
+        $this->assertSame(2, $result['site']['environment']['protectedPages']);
+        $this->assertSame(0, $result['site']['environment']['unprotectedPages']);
+        $this->assertGreaterThanOrEqual(4, $result['site']['environment']['expectedFindings']);
+        $this->assertSame(0, $result['summary']['warnings']);
+        $this->assertSame(0, $result['summary']['stagingUnprotectedPages']);
+
+        foreach ($result['pages'] as $auditedPage) {
+            $expectedCodes = array_column(
+                array_values(array_filter(
+                    $auditedPage['issues'],
+                    static fn (array $issue): bool => ($issue['expected'] ?? false) === true,
+                )),
+                'code',
+            );
+
+            $this->assertContains('robots_noindex', $expectedCodes);
+            $this->assertContains('sitemap_noindex', $expectedCodes);
+        }
+
+        $this->assertSame([], $result['site']['patterns']);
+    }
+
+    public function test_staging_mode_warns_when_pages_are_left_indexable(): void
+    {
+        $html = <<<'HTML'
+<!doctype html>
+<html lang="en">
+<head>
+<title>Unprotected staging page used for launch testing</title>
+<meta name="description" content="A complete description for an intentionally unprotected staging fixture used to test the launch safety warning.">
+<link rel="canonical" href="https://1.1.1.1/">
+<meta property="og:title" content="Unprotected staging page">
+<meta property="og:description" content="Description">
+<meta property="og:image" content="https://1.1.1.1/share.png">
+<meta property="og:url" content="https://1.1.1.1/">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Unprotected staging page">
+<meta name="twitter:description" content="Description">
+<meta name="twitter:image" content="https://1.1.1.1/share.png">
+</head>
+<body><main><h1>Unprotected staging page</h1><p>This page intentionally lacks noindex and robots blocking so the staging-mode safety warning can be tested without unrelated technical failures.</p></main></body>
+</html>
+HTML;
+
+        $sharePng = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZQMcAAAAASUVORK5CYII=');
+
+        Http::fake([
+            'https://1.1.1.1/robots.txt' => Http::response("User-agent: *\n", 200, ['Content-Type' => 'text/plain']),
+            'https://1.1.1.1/sitemap.xml' => Http::response('', 404, ['Content-Type' => 'application/xml']),
+            'https://1.1.1.1/' => Http::response($html, 200, ['Content-Type' => 'text/html']),
+            'https://1.1.1.1/share.png' => Http::response($sharePng, 200, ['Content-Type' => 'image/png']),
+        ]);
+
+        $result = app(SiteAuditor::class)->audit('https://1.1.1.1/', 5, 'staging');
+
+        $this->assertSame('unprotected', $result['site']['environment']['status']);
+        $this->assertSame(1, $result['site']['environment']['unprotectedPages']);
+        $this->assertSame(1, $result['summary']['stagingUnprotectedPages']);
+
+        $siteCodes = array_column($result['siteIssues'], 'code');
+        $this->assertContains('staging_unprotected_pages', $siteCodes);
+        $this->assertGreaterThanOrEqual(1, $result['summary']['warnings']);
+    }
+
 }
