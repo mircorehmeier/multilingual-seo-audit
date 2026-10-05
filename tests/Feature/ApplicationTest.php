@@ -40,4 +40,14 @@ class ApplicationTest extends TestCase
             ->assertStatus(400)
             ->assertJsonStructure(['error']);
     }
+
+    public function test_invalid_environment_is_rejected(): void
+    {
+        $this->postJson('/api/audit', [
+            'url' => 'https://example.com/',
+            'maxPages' => 10,
+            'environment' => 'preview',
+        ])->assertStatus(422);
+    }
+
 }
