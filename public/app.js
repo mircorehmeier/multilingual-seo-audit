@@ -846,8 +846,8 @@ downloadCsv.addEventListener('click', () => {
   if (!latestResult) return;
 
   const headers = [
-    'Record type', 'Audit generated at', 'Engine version', 'URL', 'Requested URL', 'Status', 'Lang', 'Detected lang', 'Language confidence',
-    'Title', 'Meta description', 'Canonical', 'Indexability', 'Indexability reason', 'Discovery sources', 'Discovery details',
+    'Record type', 'Audit generated at', 'Engine version', 'Environment', 'URL', 'Requested URL', 'Status', 'Lang', 'Detected lang', 'Language confidence',
+    'Title', 'Meta description', 'Canonical', 'Indexability', 'Indexability reason', 'Expected staging finding', 'Discovery sources', 'Discovery details',
     'Robots', 'X-Robots-Tag', 'Robots.txt allowed', 'Redirect final URL', 'Redirect chain', 'Link check final URL', 'Link check error',
     'Pattern code', 'Pattern scope', 'Pattern category', 'Pattern root cause', 'Origin relation', 'Origin final URL',
     'Input origin', 'Audit seed URL', 'Preferred origin', 'Preferred origin source', 'Canonical origin confidence',
@@ -861,18 +861,20 @@ downloadCsv.addEventListener('click', () => {
     'Error count', 'Warning count', 'Info count', 'Sitemaps parsed', 'Sitemap URLs discovered', 'Sitemap coverage %',
     'Summary indexable pages', 'Summary noindex pages', 'Summary robots blocked pages', 'Summary redirects', 'Summary redirect chains',
     'Summary orphan candidates', 'Summary duplicate groups', 'Summary links to redirects', 'Summary mixed-scheme links',
-    'Summary link targets checked', 'Summary social images checked', 'Summary social images discovered', 'Summary contextual links', 'Summary max crawl depth', 'Summary host alias pages', 'Summary patterns', 'Issues',
+    'Summary link targets checked', 'Summary social images checked', 'Summary social images discovered', 'Summary contextual links', 'Summary max crawl depth', 'Summary host alias pages',
+    'Summary staging protected pages', 'Summary staging unprotected pages', 'Summary expected staging findings', 'Environment status', 'Summary patterns', 'Issues',
   ];
 
   const makeRow = (values) => headers.map((header) => values[header] ?? '');
   const rows = [headers];
   const siteIssues = latestResult.siteIssues || [];
-  const siteCount = (severity) => siteIssues.filter((issue) => issue.severity === severity).length;
+  const siteCount = (severity) => siteIssues.filter((issue) => !issue.expected && issue.severity === severity).length;
 
   rows.push(makeRow({
     'Record type': 'site',
     'Audit generated at': latestResult.auditedAt || '',
     'Engine version': latestResult.version || '',
+    'Environment': auditEnvironment(latestResult),
     'URL': latestResult.origin,
     'Status': latestResult.site?.robotsTxt?.status || '',
     'Error count': siteCount('error'),
@@ -896,6 +898,10 @@ downloadCsv.addEventListener('click', () => {
     'Summary contextual links': latestResult.summary?.contextualLinks ?? '',
     'Summary max crawl depth': latestResult.summary?.maxCrawlDepth ?? '',
     'Summary host alias pages': latestResult.summary?.hostAliasPages ?? '',
+    'Summary staging protected pages': latestResult.summary?.stagingProtectedPages ?? '',
+    'Summary staging unprotected pages': latestResult.summary?.stagingUnprotectedPages ?? '',
+    'Summary expected staging findings': latestResult.summary?.expectedStagingFindings ?? '',
+    'Environment status': latestResult.site?.environment?.status || auditEnvironment(latestResult),
     'Summary patterns': latestResult.summary?.patterns ?? '',
     'Input origin': latestResult.inputOrigin || '',
     'Audit seed URL': latestResult.auditSeedUrl || '',
@@ -910,6 +916,7 @@ downloadCsv.addEventListener('click', () => {
       'Record type': 'pattern',
       'Audit generated at': latestResult.auditedAt || '',
       'Engine version': latestResult.version || '',
+      'Environment': auditEnvironment(latestResult),
       'URL': (pattern.urls || [])[0] || latestResult.origin,
       'Pattern code': pattern.code || '',
       'Pattern scope': pattern.scope || '',
@@ -924,6 +931,7 @@ downloadCsv.addEventListener('click', () => {
       'Record type': 'origin-variant',
       'Audit generated at': latestResult.auditedAt || '',
       'Engine version': latestResult.version || '',
+      'Environment': auditEnvironment(latestResult),
       'URL': variant.url || '',
       'Status': variant.status || '',
       'Redirect hops': variant.redirects || 0,
@@ -944,6 +952,7 @@ downloadCsv.addEventListener('click', () => {
       'Record type': 'redirect',
       'Audit generated at': latestResult.auditedAt || '',
       'Engine version': latestResult.version || '',
+      'Environment': auditEnvironment(latestResult),
       'URL': redirect.requestedUrl || '',
       'Requested URL': redirect.requestedUrl || '',
       'Redirect hops': chain.length,
@@ -958,6 +967,7 @@ downloadCsv.addEventListener('click', () => {
       'Record type': 'link-check',
       'Audit generated at': latestResult.auditedAt || '',
       'Engine version': latestResult.version || '',
+      'Environment': auditEnvironment(latestResult),
       'URL': check.url || '',
       'Requested URL': check.url || '',
       'Status': check.status || '',
@@ -970,12 +980,13 @@ downloadCsv.addEventListener('click', () => {
   }
 
   for (const page of latestResult.pages) {
-    const count = (severity) => page.issues.filter((issue) => issue.severity === severity).length;
+    const count = (severity) => page.issues.filter((issue) => !issue.expected && issue.severity === severity).length;
 
     rows.push(makeRow({
       'Record type': 'page',
       'Audit generated at': latestResult.auditedAt || '',
       'Engine version': latestResult.version || '',
+      'Environment': auditEnvironment(latestResult),
       'URL': page.url,
       'Requested URL': page.requestedUrl || page.url,
       'Status': page.status,
@@ -987,6 +998,7 @@ downloadCsv.addEventListener('click', () => {
       'Canonical': page.canonical || '',
       'Indexability': page.indexability?.status || 'unknown',
       'Indexability reason': page.indexability?.reason || '',
+      'Expected staging finding': (page.issues || []).some((issue) => issue.expected) ? 'yes' : 'no',
       'Discovery sources': groupedDiscovery(page.discovery || []).map((group) => group.label).join(' | '),
       'Discovery details': (page.discovery || []).map((entry) => (entry.type || '') + (entry.from ? ' <= ' + entry.from : '')).join(' | '),
       'Robots': page.robots || '',
@@ -1037,7 +1049,7 @@ downloadCsv.addEventListener('click', () => {
       'Error count': count('error'),
       'Warning count': count('warning'),
       'Info count': count('info'),
-      'Issues': page.issues.map((issue) => issue.severity + ': ' + issue.message).join(' | '),
+      'Issues': page.issues.map((issue) => (issue.expected ? 'expected' : issue.severity) + ': ' + issue.message).join(' | '),
     }));
   }
 
