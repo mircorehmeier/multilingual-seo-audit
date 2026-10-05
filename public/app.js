@@ -714,7 +714,10 @@ function render(result) {
   latestResult = result;
   const parsed = new URL(result.startUrl);
   resultDomain.textContent = parsed.hostname;
-  resultMeta.textContent = result.summary.pages + ' page' + (result.summary.pages === 1 ? '' : 's') + ' audited · ' + new Date(result.auditedAt).toLocaleString();
+  const environmentLabel = auditEnvironment(result) === 'staging' ? 'STAGING' : 'LIVE';
+  resultMeta.innerHTML = result.summary.pages + ' page' + (result.summary.pages === 1 ? '' : 's') +
+    ' audited · <span class="pill ' + (auditEnvironment(result) === 'staging' ? 'expected' : '') + '">' +
+    environmentLabel + '</span> · ' + escapeHtml(new Date(result.auditedAt).toLocaleString());
   summary.innerHTML = [
     summaryCard('pages', 'Pages', result.summary.pages),
     summaryCard('errors', 'Errors', result.summary.errors, 'error'),
@@ -737,6 +740,7 @@ function render(result) {
     summaryDetail.hidden = true;
     summaryDetail.innerHTML = '';
   }
+  renderEnvironmentStatus(result);
   renderPatternInsights(result);
   renderOriginNormalization(result);
   renderSiteDiagnostics(result);
@@ -769,18 +773,23 @@ form.addEventListener('submit', async (event) => {
   siteDiagnostics.hidden = true;
   patternInsights.hidden = true;
   originNormalization.hidden = true;
+  environmentStatus.hidden = true;
   auditComparison.hidden = true;
-  setStatus(`Auditing up to ${maxPagesInput.value} pages…`);
+  setStatus(`Auditing ${environmentInput.value === 'staging' ? 'staging' : 'live'} site · up to ${maxPagesInput.value} pages…`);
 
   try {
     const response = await fetch('/api/audit', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ url: urlInput.value, maxPages: Number(maxPagesInput.value) }),
+      body: JSON.stringify({
+        url: urlInput.value,
+        maxPages: Number(maxPagesInput.value),
+        environment: environmentInput.value,
+      }),
     });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || payload.message || 'Audit failed.');
-    setStatus(`Done. Audited ${payload.summary.pages} pages.`);
+    setStatus(`Done. Audited ${payload.summary.pages} pages as ${auditEnvironment(payload)}.`);
     render(payload);
   } catch (error) {
     setStatus(error.message || 'Audit failed.', true);
