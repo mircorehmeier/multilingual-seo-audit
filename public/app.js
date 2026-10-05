@@ -404,6 +404,10 @@ function renderOriginNormalization(result) {
   originNormalization.hidden = false;
 }
 
+function auditEnvironment(result) {
+  return result?.environment || result?.site?.environment?.mode || 'live';
+}
+
 function comparisonHost(result) {
   try {
     const host = new URL(result.startUrl || result.origin).hostname.toLowerCase();
@@ -413,17 +417,35 @@ function comparisonHost(result) {
   }
 }
 
-function auditIssueMap(result) {
+function auditPathKey(url) {
+  try {
+    const parsed = new URL(url);
+    let path = parsed.pathname || '/';
+    if (path.length > 1) path = path.replace(/\/+$/, '');
+    return path + (parsed.search || '');
+  } catch {
+    return url || '';
+  }
+}
+
+function comparisonPageKey(page, pathAware) {
+  return pathAware ? auditPathKey(page.url) : page.url;
+}
+
+function auditIssueMap(result, pathAware = false) {
   const map = new Map();
 
   for (const issue of result.siteIssues || []) {
+    if (issue.expected) continue;
     const key = 'site|' + (issue.code || issue.message || 'unknown');
     map.set(key, { scope: 'Site', url: result.origin || '', ...issue });
   }
 
   for (const page of result.pages || []) {
+    const pageKey = comparisonPageKey(page, pathAware);
     for (const issue of page.issues || []) {
-      const key = page.url + '|' + (issue.code || issue.message || 'unknown');
+      if (issue.expected) continue;
+      const key = pageKey + '|' + (issue.code || issue.message || 'unknown');
       map.set(key, { scope: 'Page', url: page.url, ...issue });
     }
   }
@@ -431,9 +453,14 @@ function auditIssueMap(result) {
   return map;
 }
 
-function compareAudits(previous, current) {
-  const previousIssues = auditIssueMap(previous);
-  const currentIssues = auditIssueMap(current);
+function comparableCanonical(value, pathAware) {
+  if (!value) return '';
+  return pathAware ? auditPathKey(value) : value;
+}
+
+function compareAudits(previous, current, pathAware = false) {
+  const previousIssues = auditIssueMap(previous, pathAware);
+  const currentIssues = auditIssueMap(current, pathAware);
   const newIssues = [];
   const fixedIssues = [];
   const changedIssues = [];
@@ -454,28 +481,38 @@ function compareAudits(previous, current) {
     if (!currentIssues.has(key)) fixedIssues.push(issue);
   }
 
-  const previousPages = new Map((previous.pages || []).map((page) => [page.url, page]));
-  const currentPages = new Map((current.pages || []).map((page) => [page.url, page]));
-  const newPages = [...currentPages.keys()].filter((url) => !previousPages.has(url));
-  const removedPages = [...previousPages.keys()].filter((url) => !currentPages.has(url));
+  const previousPages = new Map((previous.pages || []).map((page) => [comparisonPageKey(page, pathAware), page]));
+  const currentPages = new Map((current.pages || []).map((page) => [comparisonPageKey(page, pathAware), page]));
+  const newPageKeys = [...currentPages.keys()].filter((key) => !previousPages.has(key));
+  const removedPageKeys = [...previousPages.keys()].filter((key) => !currentPages.has(key));
+  const newPages = newPageKeys.map((key) => currentPages.get(key)?.url || key);
+  const removedPages = removedPageKeys.map((key) => previousPages.get(key)?.url || key);
   const changedPages = [];
 
-  for (const [url, page] of currentPages) {
-    const before = previousPages.get(url);
+  for (const [key, page] of currentPages) {
+    const before = previousPages.get(key);
     if (!before) continue;
 
     const changes = [];
-    if ((before.indexability?.status || '') !== (page.indexability?.status || '')) {
+    if (!pathAware && (before.indexability?.status || '') !== (page.indexability?.status || '')) {
       changes.push('indexability: ' + (before.indexability?.status || 'unknown') + ' → ' + (page.indexability?.status || 'unknown'));
     }
-    if ((before.canonical || '') !== (page.canonical || '')) {
+    if (comparableCanonical(before.canonical, pathAware) !== comparableCanonical(page.canonical, pathAware)) {
       changes.push('canonical changed');
     }
     if ((before.title || '') !== (page.title || '')) {
       changes.push('title changed');
     }
+    if ((before.description || '') !== (page.description || '')) {
+      changes.push('meta description changed');
+    }
+    const beforeH1 = (before.headings?.h1 || []).join(' | ');
+    const afterH1 = (page.headings?.h1 || []).join(' | ');
+    if (beforeH1 !== afterH1) {
+      changes.push('H1 changed');
+    }
 
-    if (changes.length) changedPages.push({ url, changes });
+    if (changes.length) changedPages.push({ url: page.url, previousUrl: before.url, changes });
   }
 
   return { newIssues, fixedIssues, changedIssues, newPages, removedPages, changedPages };
@@ -491,41 +528,173 @@ function comparisonList(items, renderer, emptyText) {
   return `<ul>${items.slice(0, 40).map((item) => `<li>${renderer(item)}</li>`).join('')}</ul>`;
 }
 
+function launchReadiness(previous, current, diff) {
+  const sitemapCoverage = current.site?.crawlCoverage?.percent;
+  const sitemapNoindex = (current.pages || []).filter((page) =>
+    (page.issues || []).some((issue) => issue.code === 'sitemap_noindex' && !issue.expected)
+  ).length;
+  const newErrors = diff.newIssues.filter((issue) => issue.severity === 'error').length;
+  const newWarnings = diff.newIssues.filter((issue) => issue.severity === 'warning').length;
+  const liveRobotsBlocked = current.summary?.robotsBlockedPages ?? 0;
+  const originWarnings = (current.siteIssues || []).filter((issue) =>
+    ['origin_variant_direct_200', 'canonical_origin_conflict'].includes(issue.code)
+  ).length;
+  const metadataDrift = diff.changedPages.filter((entry) =>
+    entry.changes.some((change) => ['title changed', 'meta description changed', 'H1 changed'].includes(change))
+  ).length;
+
+  return [
+    {
+      type: sitemapCoverage === 100 ? 'good' : 'review',
+      text: sitemapCoverage === 100
+        ? 'Production sitemap coverage is complete.'
+        : 'Production sitemap coverage is ' + (sitemapCoverage ?? 'unknown') + '%.',
+    },
+    {
+      type: sitemapNoindex === 0 ? 'good' : 'bad',
+      text: sitemapNoindex === 0
+        ? 'No sitemap-listed production page is unintentionally noindex.'
+        : sitemapNoindex + ' sitemap-listed production page(s) are still noindex.',
+    },
+    {
+      type: liveRobotsBlocked === 0 ? 'good' : 'bad',
+      text: liveRobotsBlocked === 0
+        ? 'No audited production pages are blocked for Googlebot by robots.txt.'
+        : liveRobotsBlocked + ' audited production page(s) are still blocked by robots.txt.',
+    },
+    {
+      type: originWarnings === 0 ? 'good' : 'review',
+      text: originWarnings === 0
+        ? 'Production origin/canonical consolidation looks consistent.'
+        : originWarnings + ' production origin/canonical normalization issue(s) need review.',
+    },
+    {
+      type: diff.removedPages.length === 0 ? 'good' : 'review',
+      text: diff.removedPages.length === 0
+        ? 'Every staging path has a matching production path.'
+        : diff.removedPages.length + ' staging path(s) have no matching production page.',
+    },
+    {
+      type: metadataDrift === 0 ? 'good' : 'review',
+      text: metadataDrift === 0
+        ? 'Titles, meta descriptions and H1s match staging on shared paths.'
+        : metadataDrift + ' shared path(s) changed title, meta description or H1 during launch.',
+    },
+    {
+      type: newErrors === 0 ? 'good' : 'bad',
+      text: newErrors === 0
+        ? 'No new production errors compared with staging.'
+        : newErrors + ' new production error(s) appeared after launch.',
+    },
+    {
+      type: newWarnings === 0 ? 'good' : 'review',
+      text: newWarnings === 0
+        ? 'No new production warnings compared with staging.'
+        : newWarnings + ' new production warning(s) appeared after launch.',
+    },
+  ];
+}
+
+function renderLaunchChecks(checks) {
+  return `<div class="comparison-group" style="grid-column:1/-1"><h4>Launch readiness</h4><div class="launch-checks">${checks.map((check) => {
+    const icon = check.type === 'good' ? '✓' : (check.type === 'bad' ? '!' : '•');
+    return `<div class="launch-check ${check.type}"><span class="launch-icon">${icon}</span><span>${escapeHtml(check.text)}</span></div>`;
+  }).join('')}</div></div>`;
+}
+
 function renderComparison(previous, current) {
   if (!previous || !Array.isArray(previous.pages) || !previous.summary) {
     throw new Error('This JSON file is not a compatible Multilingual SEO Audit export.');
   }
 
-  if (comparisonHost(previous) !== comparisonHost(current)) {
-    throw new Error('The previous audit is for a different hostname.');
+  const launchComparison = auditEnvironment(previous) === 'staging' && auditEnvironment(current) === 'live';
+  const sameHost = comparisonHost(previous) === comparisonHost(current);
+
+  if (!sameHost && !launchComparison) {
+    throw new Error('The previous audit is for a different hostname. Cross-host comparison is allowed when comparing a staging audit with a live audit.');
   }
 
-  const diff = compareAudits(previous, current);
+  const diff = compareAudits(previous, current, launchComparison);
   const previousDate = previous.auditedAt ? new Date(previous.auditedAt).toLocaleString() : 'unknown date';
   const currentDate = current.auditedAt ? new Date(current.auditedAt).toLocaleString() : 'current audit';
 
-  comparisonTitle.textContent = 'Changes since previous audit';
-  comparisonMeta.textContent = previousDate + ' (v' + (previous.version || '?') + ') → ' + currentDate + ' (v' + (current.version || '?') + ') · Compared locally in your browser; the previous file is not uploaded.';
+  comparisonTitle.textContent = launchComparison ? 'Staging → live launch comparison' : 'Changes since previous audit';
+  comparisonMeta.textContent = previousDate + ' (v' + (previous.version || '?') + ', ' + auditEnvironment(previous) + ') → ' +
+    currentDate + ' (v' + (current.version || '?') + ', ' + auditEnvironment(current) + ') · ' +
+    (launchComparison
+      ? 'Pages are matched by path so staging and production may use different hostnames. '
+      : '') +
+    'Compared locally in your browser; the previous file is not uploaded.';
+
   comparisonSummary.innerHTML = [
-    ['New issues', diff.newIssues.length, 'bad'],
-    ['Fixed issues', diff.fixedIssues.length, 'good'],
-    ['New pages', diff.newPages.length, ''],
-    ['Removed pages', diff.removedPages.length, ''],
+    ['New issues', diff.newIssues.length, diff.newIssues.length ? 'bad' : ''],
+    ['Fixed issues', diff.fixedIssues.length, diff.fixedIssues.length ? 'good' : ''],
+    [launchComparison ? 'New live paths' : 'New pages', diff.newPages.length, ''],
+    [launchComparison ? 'Missing live paths' : 'Removed pages', diff.removedPages.length, diff.removedPages.length ? 'bad' : ''],
   ].map(([label, value, type]) => `<div class="comparison-card ${type}"><span>${label}</span><strong>${value}</strong></div>`).join('');
 
+  const launch = launchComparison ? renderLaunchChecks(launchReadiness(previous, current, diff)) : '';
+
   comparisonDetails.innerHTML = `
+    ${launch}
     <div class="comparison-group"><h4>New issues</h4>${comparisonList(diff.newIssues, comparisonIssueItem, 'No new issues.')}</div>
     <div class="comparison-group"><h4>Fixed issues</h4>${comparisonList(diff.fixedIssues, comparisonIssueItem, 'No fixed issues.')}</div>
-    <div class="comparison-group"><h4>New / removed pages</h4>
-      ${comparisonList(diff.newPages, (url) => '+ ' + linkHtml(url), 'No new pages.')}
-      ${comparisonList(diff.removedPages, (url) => '− ' + linkHtml(url), 'No removed pages.')}
+    <div class="comparison-group"><h4>${launchComparison ? 'New / missing live paths' : 'New / removed pages'}</h4>
+      ${comparisonList(diff.newPages, (url) => '+ ' + linkHtml(url), launchComparison ? 'No new production-only paths.' : 'No new pages.')}
+      ${comparisonList(diff.removedPages, (url) => '− ' + linkHtml(url), launchComparison ? 'No staging paths are missing from production.' : 'No removed pages.')}
     </div>
     <div class="comparison-group"><h4>Changed pages / issues</h4>
-      ${comparisonList(diff.changedPages, (entry) => linkHtml(entry.url) + ' — ' + escapeHtml(entry.changes.join(' · ')), 'No title, canonical or indexability changes on shared URLs.')}
+      ${comparisonList(diff.changedPages, (entry) => linkHtml(entry.url) + ' — ' + escapeHtml(entry.changes.join(' · ')), 'No important page-level changes on shared URLs/paths.')}
       ${comparisonList(diff.changedIssues, (entry) => comparisonIssueItem(entry.after) + ' <span class="muted">(changed)</span>', 'No persistent issues changed severity or wording.')}
     </div>
   `;
   auditComparison.hidden = false;
+}
+
+function renderEnvironmentStatus(result) {
+  const mode = auditEnvironment(result);
+  const diagnostics = result.site?.environment || { mode };
+  environmentStatus.classList.remove('staging', 'live');
+  environmentStatus.classList.add(mode);
+  environmentEyebrow.textContent = mode === 'staging' ? 'Staging / pre-launch' : 'Live environment';
+  environmentTitle.textContent = mode === 'staging' ? 'Indexing protection' : 'Production indexing';
+  
+  if (mode === 'staging') {
+    const statusLabel = {
+      protected: 'Protected',
+      partial: 'Partially protected',
+      unprotected: 'Not protected',
+      unknown: 'Protection unknown',
+    }[diagnostics.status] || diagnostics.status || 'Unknown';
+    const statusClass = diagnostics.status === 'protected'
+      ? 'environment-status-good'
+      : (diagnostics.status === 'partial' ? 'environment-status-warning' : 'environment-status-danger');
+
+    environmentStatusMeta.innerHTML = `<span class="${statusClass}">${escapeHtml(statusLabel)}</span>`;
+    environmentStatusBody.innerHTML = `
+      <div class="environment-grid">
+        <div class="environment-stat"><span>Protected pages</span><strong>${diagnostics.protectedPages ?? 0}</strong></div>
+        <div class="environment-stat"><span>Unprotected pages</span><strong>${diagnostics.unprotectedPages ?? 0}</strong></div>
+        <div class="environment-stat"><span>Expected staging findings</span><strong>${diagnostics.expectedFindings ?? 0}</strong></div>
+        <div class="environment-stat"><span>Cross-origin canonicals</span><strong>${diagnostics.crossOriginCanonicalPages ?? 0}</strong></div>
+      </div>
+      <p class="environment-note">Protection signals: meta noindex on ${diagnostics.metaNoindexPages ?? 0} page(s), X-Robots-Tag noindex on ${diagnostics.xRobotsNoindexPages ?? 0}, robots.txt blocking on ${diagnostics.robotsBlockedPages ?? 0}. ${escapeHtml(diagnostics.note || '')}</p>
+    `;
+  } else {
+    const coverage = result.site?.crawlCoverage?.percent;
+    environmentStatusMeta.innerHTML = '<span class="environment-status-good">Live</span>';
+    environmentStatusBody.innerHTML = `
+      <div class="environment-grid">
+        <div class="environment-stat"><span>Indexable pages</span><strong>${result.summary?.indexablePages ?? 0}</strong></div>
+        <div class="environment-stat"><span>Noindex pages</span><strong>${result.summary?.noindexPages ?? 0}</strong></div>
+        <div class="environment-stat"><span>Robots blocked</span><strong>${result.summary?.robotsBlockedPages ?? 0}</strong></div>
+        <div class="environment-stat"><span>Sitemap coverage</span><strong>${coverage == null ? '—' : coverage + '%'}</strong></div>
+      </div>
+      <p class="environment-note">Live mode treats indexability directives normally. Use a staging JSON export with “Compare previous JSON” after launch for a path-aware staging → live check.</p>
+    `;
+  }
+
+  environmentStatus.hidden = false;
 }
 
 function renderSiteDiagnostics(result) {
