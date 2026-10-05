@@ -445,7 +445,7 @@ XML;
 <meta name="twitter:description" content="Staging social description">
 <meta name="twitter:image" content="https://1.1.1.1/share.png">
 </head>
-<body><main><h1>{$title}</h1><p>This staging page contains enough visible content for the audit fixture and is intentionally protected from indexing before publication. The content is complete enough to avoid unrelated thin-content observations during the test.</p></main></body>
+<body><main><h1>{$title}</h1><p>This staging page contains enough visible content for the audit fixture and is intentionally protected from indexing before publication. The page represents a realistic pre-launch website with navigation, useful explanatory copy, multilingual metadata, structured page content, technical SEO elements and a deliberate search-engine protection policy. It contains sufficient text to keep the fixture focused on staging behavior instead of content-length heuristics, while still remaining simple enough for deterministic regression testing across supported PHP versions and deployment environments.</p></main></body>
 </html>
 HTML;
         };
