@@ -2,7 +2,7 @@
 
 **Live demo:** https://seo-audit.rehmeier.es/
 
-An open-source multilingual technical SEO auditor built with **Laravel 13** and PHP. Current application version: **0.8.0**.
+An open-source multilingual technical SEO auditor built with **Laravel 13** and PHP. Current application version: **0.9.0**.
 
 It crawls a same-origin website and reports concrete technical issues instead of inventing an opaque SEO score.
 
@@ -44,6 +44,10 @@ It crawls a same-origin website and reports concrete technical issues instead of
 - canonical-host inference before sitemap discovery, so audits started on a 200-serving alias can switch to the canonical-preferred origin instead of misclassifying every page
 - host-alias canonicalization distinguished from genuine page-to-page canonicalization
 - local audit-to-audit JSON comparison for new/fixed issues and added/removed/changed pages
+- explicit Live vs Staging / pre-launch audit mode
+- staging-aware interpretation of intentional noindex, X-Robots-Tag and robots.txt protection, separated from normal issue counts
+- staging exposure warning when pre-launch pages are left without noindex or robots protection
+- path-aware staging → live comparison across different hostnames, with launch-readiness checks for sitemap coverage, indexing protection removal, robots access, origin normalization, missing paths, metadata drift and new errors/warnings
 - CSV and JSON exports
 - self-describing CSV exports with audit timestamp, engine version, redirect records, origin variants, repeated patterns, URL discovery provenance, extra link-check records, robots access, hreflang source, crawl depth, social-image diagnostics, heading counts and JSON-LD diagnostics
 
@@ -98,7 +102,8 @@ Example:
 ```json
 {
   "url": "https://example.com",
-  "maxPages": 25
+  "maxPages": 25,
+  "environment": "live"
 }
 ```
 
@@ -171,7 +176,7 @@ Composer + Laravel deployment
 
 ## Current limitations
 
-- audit-to-audit comparison is intentionally local/browser-side and currently accepts previous JSON exports rather than storing audit history on the server
+- audit-to-audit comparison is intentionally local/browser-side and accepts previous JSON exports rather than storing audit history on the server; staging → live comparisons match pages by path so hostnames may differ
 - raw server-returned HTML only; JavaScript rendering is not included
 - content-language detection is intentionally conservative and currently covers EN, DE, ES, PT, FR, IT and NL
 - independent internal-link target checks are capped at 50 URLs beyond the normal page crawl quota
