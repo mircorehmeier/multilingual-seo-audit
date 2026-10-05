@@ -32,9 +32,13 @@ class SiteAuditor
     ) {
     }
 
-    public function audit(string $startInput, int $requestedMaxPages = 25): array
+    public function audit(string $startInput, int $requestedMaxPages = 25, string $environment = 'live'): array
     {
         $startInput = trim($startInput);
+        $environment = strtolower(trim($environment));
+        if (! in_array($environment, ['live', 'staging'], true)) {
+            $environment = 'live';
+        }
 
         if (! preg_match('#^https?://#i', $startInput)) {
             $startInput = 'https://'.$startInput;
@@ -423,6 +427,13 @@ class SiteAuditor
         }
         unset($page);
 
+        $environmentDiagnostics = $this->applyEnvironmentContext(
+            $pages,
+            $site['issues'],
+            $environment,
+            $preferredOrigin,
+        );
+
         $counts = ['error' => 0, 'warning' => 0, 'info' => 0];
         $languages = [];
         $hreflangCodes = [];
@@ -430,6 +441,9 @@ class SiteAuditor
         $robotsBlockedPages = 0;
 
         foreach ($site['issues'] as $issue) {
+            if (($issue['expected'] ?? false) === true) {
+                continue;
+            }
             $counts[$issue['severity']]++;
         }
 
@@ -451,6 +465,9 @@ class SiteAuditor
             }
 
             foreach ($page['issues'] as $issue) {
+                if (($issue['expected'] ?? false) === true) {
+                    continue;
+                }
                 $counts[$issue['severity']]++;
             }
         }
@@ -464,6 +481,7 @@ class SiteAuditor
 
         return [
             'version' => config('audit.version'),
+            'environment' => $environment,
             'startUrl' => $inputUrl,
             'auditSeedUrl' => $auditSeedUrl,
             'inputOrigin' => $inputOrigin,
@@ -479,6 +497,7 @@ class SiteAuditor
                 'linkTargetChecks' => array_values($targetChecks['checks']),
                 'originNormalization' => $originNormalization,
                 'socialImages' => $socialImageDiagnostics,
+                'environment' => $environmentDiagnostics,
                 'patterns' => $issuePatterns,
             ],
             'siteIssues' => $site['issues'],
@@ -508,6 +527,9 @@ class SiteAuditor
                 'socialImagesChecked' => $socialImageDiagnostics['checked'],
                 'socialImagesDiscovered' => $socialImageDiagnostics['discovered'],
                 'hostAliasPages' => $hostAliasPages,
+                'stagingProtectedPages' => $environmentDiagnostics['protectedPages'],
+                'stagingUnprotectedPages' => $environmentDiagnostics['unprotectedPages'],
+                'expectedStagingFindings' => $environmentDiagnostics['expectedFindings'],
                 'maxCrawlDepth' => $crossPage['maxCrawlDepth'],
                 'contextualLinks' => $crossPage['contextualLinks'],
                 'patterns' => count($issuePatterns),
@@ -1889,6 +1911,135 @@ class SiteAuditor
 
         return (string) parse_url($page, PHP_URL_PATH) === (string) parse_url($target, PHP_URL_PATH)
             && (string) parse_url($page, PHP_URL_QUERY) === (string) parse_url($target, PHP_URL_QUERY);
+    }
+
+    private function applyEnvironmentContext(
+        array &$pages,
+        array &$siteIssues,
+        string $environment,
+        string $preferredOrigin,
+    ): array {
+        $diagnostics = [
+            'mode' => $environment,
+            'status' => $environment === 'staging' ? 'unknown' : 'live',
+            'protectedPages' => 0,
+            'unprotectedPages' => 0,
+            'expectedFindings' => 0,
+            'metaNoindexPages' => 0,
+            'xRobotsNoindexPages' => 0,
+            'robotsBlockedPages' => 0,
+            'crossOriginCanonicalPages' => 0,
+            'unprotectedUrls' => [],
+            'note' => $environment === 'staging'
+                ? 'Staging mode treats intentional noindex/robots protection as expected. robots.txt is not access control or a security boundary.'
+                : 'Live mode interprets indexability normally.',
+        ];
+
+        if ($environment !== 'staging') {
+            return $diagnostics;
+        }
+
+        $expectedCodes = [
+            'robots_noindex',
+            'x_robots_noindex',
+            'robots_txt_blocked',
+            'sitemap_noindex',
+            'canonical_target_noindex',
+            'hreflang_target_noindex',
+        ];
+
+        foreach ($pages as &$page) {
+            $metaNoindex = $this->directiveContains($page['robots'] ?? null, 'noindex');
+            $xRobotsNoindex = $this->directiveContains($page['xRobotsTag'] ?? null, 'noindex');
+            $robotsBlocked = ($page['robotsTxt']['allowed'] ?? true) === false;
+
+            if ($metaNoindex) {
+                $diagnostics['metaNoindexPages']++;
+            }
+            if ($xRobotsNoindex) {
+                $diagnostics['xRobotsNoindexPages']++;
+            }
+            if ($robotsBlocked) {
+                $diagnostics['robotsBlockedPages']++;
+            }
+
+            $crossOriginCanonical = false;
+            if (! empty($page['canonical'])) {
+                try {
+                    $crossOriginCanonical = $this->urls->origin($page['canonical']) !== $this->urls->origin($page['url']);
+                } catch (Throwable) {
+                    $crossOriginCanonical = false;
+                }
+            }
+
+            if ($crossOriginCanonical) {
+                $diagnostics['crossOriginCanonicalPages']++;
+            }
+
+            $protected = $metaNoindex || $xRobotsNoindex || $robotsBlocked;
+            $page['environment'] = [
+                'mode' => 'staging',
+                'protectedFromIndexing' => $protected,
+                'metaNoindex' => $metaNoindex,
+                'xRobotsNoindex' => $xRobotsNoindex,
+                'robotsBlocked' => $robotsBlocked,
+                'crossOriginCanonical' => $crossOriginCanonical,
+            ];
+
+            if ($protected) {
+                $diagnostics['protectedPages']++;
+            } elseif (($page['status'] ?? 0) >= 200 && ($page['status'] ?? 0) < 300) {
+                $diagnostics['unprotectedPages']++;
+                $diagnostics['unprotectedUrls'][] = $page['url'];
+            }
+
+            foreach ($page['issues'] as &$issue) {
+                $expected = in_array($issue['code'] ?? '', $expectedCodes, true);
+
+                if (
+                    $crossOriginCanonical
+                    && in_array(
+                        $issue['code'] ?? '',
+                        ['canonical_other', 'sitemap_noncanonical', 'hreflang_target_canonical_other'],
+                        true,
+                    )
+                ) {
+                    $expected = true;
+                }
+
+                if (! $expected) {
+                    continue;
+                }
+
+                $issue['expected'] = true;
+                $issue['severity'] = 'info';
+                $diagnostics['expectedFindings']++;
+            }
+            unset($issue);
+        }
+        unset($page);
+
+        if ($diagnostics['unprotectedPages'] > 0) {
+            $examples = array_slice($diagnostics['unprotectedUrls'], 0, 3);
+            $extra = $diagnostics['unprotectedPages'] > count($examples)
+                ? ' +'.($diagnostics['unprotectedPages'] - count($examples)).' more'
+                : '';
+
+            $siteIssues[] = [
+                'code' => 'staging_unprotected_pages',
+                'severity' => 'warning',
+                'message' => $diagnostics['unprotectedPages'].' staging page'.
+                    ($diagnostics['unprotectedPages'] === 1 ? ' is' : 's are').
+                    ' not protected by noindex, X-Robots-Tag noindex, or robots.txt: '.
+                    implode(', ', $examples).$extra.'.',
+            ];
+
+            $diagnostics['status'] = $diagnostics['protectedPages'] > 0 ? 'partial' : 'unprotected';
+        } else {
+            $diagnostics['status'] = $diagnostics['protectedPages'] > 0 ? 'protected' : 'unknown';
+        }
+
+        return $diagnostics;
     }
 
     private function indexability(array $page, string $preferredOrigin): array

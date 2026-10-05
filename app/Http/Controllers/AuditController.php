@@ -15,12 +15,14 @@ class AuditController
         $validated = $request->validate([
             'url' => ['required', 'string', 'max:2048'],
             'maxPages' => ['nullable', 'integer', 'min:1', 'max:100'],
+            'environment' => ['nullable', 'string', 'in:live,staging'],
         ]);
 
         try {
             $result = $auditor->audit(
                 $validated['url'],
                 (int) ($validated['maxPages'] ?? 25),
+                (string) ($validated['environment'] ?? 'live'),
             );
 
             return response()->json($result);

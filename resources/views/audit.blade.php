@@ -29,6 +29,13 @@
           <span>Website URL</span>
           <input id="url" name="url" type="text" inputmode="url" autocomplete="url" placeholder="https://example.com" required>
         </label>
+        <label class="environment-field">
+          <span>Environment</span>
+          <select id="environment" name="environment">
+            <option value="live" selected>Live site</option>
+            <option value="staging">Staging / pre-launch</option>
+          </select>
+        </label>
         <label class="pages-field">
           <span>Max pages</span>
           <select id="max-pages" name="maxPages">
@@ -40,7 +47,7 @@
         </label>
         <button id="run-button" type="submit">Run audit</button>
       </form>
-      <p class="form-note">Same-origin crawl · Sitemap-assisted discovery · Public HTTP/HTTPS targets · Maximum 100 pages</p>
+      <p class="form-note">Same-origin crawl · Sitemap-assisted discovery · Live or staging-aware interpretation · Public HTTP/HTTPS targets · Maximum 100 pages</p>
       <div id="status" class="status" aria-live="polite"></div>
     </section>
 
@@ -62,6 +69,17 @@
       <div id="summary" class="summary-grid" aria-label="Audit summary"></div>
       <p class="summary-hint">Click any metric for an explanation and the URLs or checks behind that value.</p>
       <div id="summary-detail" class="summary-detail" hidden aria-live="polite"></div>
+
+      <section id="environment-status" class="environment-panel" hidden aria-live="polite">
+        <div class="intelligence-heading">
+          <div>
+            <p class="eyebrow" id="environment-eyebrow">Environment</p>
+            <h3 id="environment-title">Audit environment</h3>
+          </div>
+          <span id="environment-status-meta" class="muted"></span>
+        </div>
+        <div id="environment-status-body"></div>
+      </section>
 
       <div class="intelligence-grid">
         <section id="pattern-insights" class="intelligence-panel" hidden>
@@ -113,6 +131,7 @@
             <option value="error">Errors</option>
             <option value="warning">Warnings</option>
             <option value="info">Info</option>
+            <option value="expected">Expected staging</option>
           </select>
         </label>
         <label class="search-field">
@@ -154,6 +173,7 @@
         <article><h3>Redirects</h3><p>Redirect chains, temporary redirects, sitemap redirects, host aliases and same-host links using a different scheme or port.</p></article>
         <article><h3>Patterns & provenance</h3><p>Repeated issue root causes, canonical-preferred host inference, and the sitemap, internal-link, hreflang, canonical, redirect or start signal that brought each URL into the audit.</p></article>
         <article><h3>Change tracking</h3><p>Compare a previous JSON export locally to see new and fixed issues, new or removed pages, and important page-level changes.</p></article>
+        <article><h3>Staging → live</h3><p>Mark pre-launch audits as staging, treat intentional noindex/robots protection as expected, and compare staging paths to production even when the hostname changes.</p></article>
       </div>
     </section>
   </main>
