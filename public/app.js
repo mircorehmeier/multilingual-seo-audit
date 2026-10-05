@@ -839,7 +839,7 @@ tableSearch.addEventListener('input', renderRows);
 
 downloadJson.addEventListener('click', () => {
   if (!latestResult) return;
-  download('multilingual-seo-audit.json', JSON.stringify(latestResult, null, 2), 'application/json');
+  download('multilingual-seo-audit-' + auditEnvironment(latestResult) + '.json', JSON.stringify(latestResult, null, 2), 'application/json');
 });
 
 downloadCsv.addEventListener('click', () => {
