@@ -19,6 +19,10 @@ class AuditPatternAnalyzer
             $url = (string) ($page['url'] ?? '');
 
             foreach ($page['issues'] ?? [] as $issue) {
+                if (($issue['expected'] ?? false) === true) {
+                    continue;
+                }
+
                 $code = (string) ($issue['code'] ?? 'unknown');
                 $severity = (string) ($issue['severity'] ?? 'info');
                 $key = $severity.'|'.$code;
