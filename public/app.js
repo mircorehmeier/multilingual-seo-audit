@@ -1,6 +1,7 @@
 const form = document.querySelector('#audit-form');
 const urlInput = document.querySelector('#url');
 const maxPagesInput = document.querySelector('#max-pages');
+const environmentInput = document.querySelector('#environment');
 const runButton = document.querySelector('#run-button');
 const status = document.querySelector('#status');
 const results = document.querySelector('#results');
@@ -17,6 +18,11 @@ const patternInsightsList = document.querySelector('#pattern-insights-list');
 const originNormalization = document.querySelector('#origin-normalization');
 const originNormalizationMeta = document.querySelector('#origin-normalization-meta');
 const originNormalizationList = document.querySelector('#origin-normalization-list');
+const environmentStatus = document.querySelector('#environment-status');
+const environmentEyebrow = document.querySelector('#environment-eyebrow');
+const environmentTitle = document.querySelector('#environment-title');
+const environmentStatusMeta = document.querySelector('#environment-status-meta');
+const environmentStatusBody = document.querySelector('#environment-status-body');
 const compareAuditFile = document.querySelector('#compare-audit-file');
 const auditComparison = document.querySelector('#audit-comparison');
 const comparisonTitle = document.querySelector('#comparison-title');
@@ -69,7 +75,9 @@ function escapeHtml(value = '') {
 }
 
 function issueHtml(issue) {
-  return `<div class="issue-item"><span class="pill ${issue.severity}">${issue.severity}</span>${escapeHtml(issue.message)}</div>`;
+  const label = issue.expected ? 'expected' : (issue.severity || 'info');
+  const className = issue.expected ? 'expected' : (issue.severity || 'info');
+  return `<div class="issue-item"><span class="pill ${escapeHtml(className)}">${escapeHtml(label)}</span>${escapeHtml(issue.message)}</div>`;
 }
 
 const DISCOVERY_LABELS = {
@@ -125,11 +133,11 @@ function detailList(items, emptyMessage = 'None found.') {
 function collectIssues(result, severity) {
   const items = [];
   for (const issue of result.siteIssues || []) {
-    if (issue.severity === severity) items.push(`<strong>Site:</strong> ${escapeHtml(issue.message)}`);
+    if (!issue.expected && issue.severity === severity) items.push(`<strong>Site:</strong> ${escapeHtml(issue.message)}`);
   }
   for (const page of result.pages || []) {
     for (const issue of page.issues || []) {
-      if (issue.severity === severity) {
+      if (!issue.expected && issue.severity === severity) {
         items.push(`${linkHtml(page.url)} — ${escapeHtml(issue.message)}`);
       }
     }
@@ -273,7 +281,8 @@ function showSummaryDetail(key) {
 
 function pageMatches(page) {
   const severity = severityFilter.value;
-  if (severity !== 'all' && !page.issues.some((issue) => issue.severity === severity)) return false;
+  if (severity === 'expected' && !page.issues.some((issue) => issue.expected)) return false;
+  if (severity !== 'all' && severity !== 'expected' && !page.issues.some((issue) => !issue.expected && issue.severity === severity)) return false;
   const q = tableSearch.value.trim().toLowerCase();
   if (!q) return true;
   const haystack = [
@@ -284,7 +293,7 @@ function pageMatches(page) {
     page.canonical || '',
     ...(page.discovery || []).flatMap((entry) => [entry.type || '', entry.from || '']),
     ...page.hreflangs.flatMap((entry) => [entry.lang, entry.href]),
-    ...page.issues.map((issue) => `${issue.code} ${issue.message} ${issue.severity}`),
+    ...page.issues.map((issue) => `${issue.code} ${issue.message} ${issue.severity} ${issue.expected ? 'expected staging' : ''}`),
   ].join(' ').toLowerCase();
   return haystack.includes(q);
 }
