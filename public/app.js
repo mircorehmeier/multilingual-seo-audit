@@ -761,6 +761,28 @@ function download(filename, content, type) {
   URL.revokeObjectURL(href);
 }
 
+function auditExportFilename(result, extension) {
+  let domain = 'unknown-domain';
+  try {
+    domain = new URL(result.startUrl || result.origin || urlInput.value).hostname.toLowerCase();
+  } catch {
+    // Retain a safe fallback for imported or incomplete results.
+  }
+  domain = domain.replace(/[^a-z0-9.-]/g, '-').replace(/^-+|-+$/g, '') || 'unknown-domain';
+  const now = new Date();
+  const pad = (value) => String(value).padStart(2, '0');
+  const timestamp = [
+    now.getFullYear(),
+    pad(now.getMonth() + 1),
+    pad(now.getDate()),
+  ].join('') + '-' + [
+    pad(now.getHours()),
+    pad(now.getMinutes()),
+    pad(now.getSeconds()),
+  ].join('');
+  return `seo-audit-${domain}-${timestamp}.${extension}`;
+}
+
 function csvEscape(value) {
   const text = String(value ?? '');
   return `"${text.replaceAll('"', '""')}"`;
@@ -839,7 +861,7 @@ tableSearch.addEventListener('input', renderRows);
 
 downloadJson.addEventListener('click', () => {
   if (!latestResult) return;
-  download('multilingual-seo-audit-' + auditEnvironment(latestResult) + '.json', JSON.stringify(latestResult, null, 2), 'application/json');
+  download(auditExportFilename(latestResult, 'json'), JSON.stringify(latestResult, null, 2), 'application/json');
 });
 
 downloadCsv.addEventListener('click', () => {
@@ -1053,6 +1075,6 @@ downloadCsv.addEventListener('click', () => {
     }));
   }
 
-  download('multilingual-seo-audit.csv', rows.map((row) => row.map(csvEscape).join(',')).join('\n'), 'text/csv;charset=utf-8');
+  download(auditExportFilename(latestResult, 'csv'), rows.map((row) => row.map(csvEscape).join(',')).join('\n'), 'text/csv;charset=utf-8');
 });
 
