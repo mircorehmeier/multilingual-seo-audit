@@ -59,8 +59,8 @@
           <p id="result-meta" class="muted">—</p>
         </div>
         <div class="actions">
-          <label class="secondary file-action" for="compare-audit-file">Compare previous JSON</label>
-          <input id="compare-audit-file" class="sr-only" type="file" accept="application/json,.json">
+          <label class="secondary file-action" for="compare-audit-file">Compare previous audit (CSV / JSON)</label>
+          <input id="compare-audit-file" class="sr-only" type="file" accept=".csv,.json,text/csv,application/json">
           <button id="download-json" class="secondary" type="button">Export JSON</button>
           <button id="download-csv" class="secondary" type="button">Export CSV</button>
         </div>
@@ -172,7 +172,7 @@
         <article><h3>Content quality</h3><p>Exact body-content duplicates, conservative language detection, H1 structure, thin-content heuristics and missing image alt attributes.</p></article>
         <article><h3>Redirects</h3><p>Redirect chains, temporary redirects, sitemap redirects, host aliases and same-host links using a different scheme or port.</p></article>
         <article><h3>Patterns & provenance</h3><p>Repeated issue root causes, canonical-preferred host inference, and the sitemap, internal-link, hreflang, canonical, redirect or start signal that brought each URL into the audit.</p></article>
-        <article><h3>Change tracking</h3><p>Compare a previous JSON export locally to see new and fixed issues, new or removed pages, and important page-level changes.</p></article>
+        <article><h3>Change tracking</h3><p>Compare a previous CSV or JSON export locally to see new and fixed issues, added or removed pages, and important metadata changes. JSON gives the most precise issue matching.</p></article>
         <article><h3>Staging → live</h3><p>Mark pre-launch audits as staging, treat intentional noindex/robots protection as expected, and compare staging paths to production even when the hostname changes.</p></article>
       </div>
     </section>
