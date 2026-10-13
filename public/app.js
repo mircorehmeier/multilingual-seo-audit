@@ -913,7 +913,21 @@ summaryDetail?.addEventListener('click', (event) => {
 
 compareAuditFile?.addEventListener('change', async () => {
   const file = compareAuditFile.files?.[0];
-  if (!file || !latestResult) return;
+  if (!file) return;
+  // Clear so selecting the same audit file again always fires "change".
+  compareAuditFile.value = '';
+
+  if (!latestResult) {
+    setStatus('Run a current audit first, then select a previous CSV or JSON file to compare.', true);
+    return;
+  }
+
+  comparisonTitle.textContent = 'Comparing previous audit…';
+  comparisonMeta.textContent = 'Reading ' + file.name + ' locally in your browser.';
+  comparisonSummary.innerHTML = '';
+  comparisonDetails.innerHTML = '';
+  auditComparison.hidden = false;
+  auditComparison.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
   try {
     const content = await file.text();
@@ -928,6 +942,7 @@ compareAuditFile?.addEventListener('change', async () => {
     comparisonDetails.innerHTML = '';
     auditComparison.hidden = false;
   }
+  auditComparison.scrollIntoView({ behavior: 'smooth', block: 'start' });
 });
 
 comparisonClose?.addEventListener('click', () => {
