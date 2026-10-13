@@ -458,9 +458,84 @@ function comparableCanonical(value, pathAware) {
   return pathAware ? auditPathKey(value) : value;
 }
 
+// CSV exports contain readable issue messages rather than stable issue codes.
+function comparisonIssues(result, pathAware = false, useMessages = false) {
+  if (!useMessages) return auditIssueMap(result, pathAware);
+  const map = new Map();
+  const add = (issue, scope, url, pageKey) => {
+    if (issue.expected) return;
+    const message = String(issue.message || issue.code || '').trim();
+    if (!message) return;
+    map.set(pageKey + '|' + message, { ...issue, scope, url });
+  };
+  for (const issue of result.siteIssues || []) add(issue, 'Site', result.origin || '', 'site');
+  for (const page of result.pages || []) {
+    for (const issue of page.issues || []) add(issue, 'Page', page.url, comparisonPageKey(page, pathAware));
+  }
+  return map;
+}
+
+function parseAuditCsv(text) {
+  const records = [];
+  let row = [], value = '', quoted = false;
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    if (quoted) {
+      if (char === '"' && text[i + 1] === '"') { value += '"'; i++; }
+      else if (char === '"') quoted = false;
+      else value += char;
+    } else if (char === '"') quoted = true;
+    else if (char === ',') { row.push(value); value = ''; }
+    else if (char === '\n' || char === '\r') {
+      if (char === '\r' && text[i + 1] === '\n') i++;
+      row.push(value); value = '';
+      if (row.some((cell) => cell !== '')) records.push(row);
+      row = [];
+    } else value += char;
+  }
+  if (quoted) throw new Error('Invalid CSV: an enclosed value was not closed.');
+  if (row.length || value) { row.push(value); records.push(row); }
+  const headers = (records.shift() || []).map((cell) => cell.replace(/^\uFEFF/, '').trim());
+  if (!headers.includes('Record type') || !headers.includes('URL')) {
+    throw new Error('This is not a supported SEO Audit CSV export (missing Record type or URL).');
+  }
+  const get = (record, key) => record[headers.indexOf(key)] || '';
+  const issues = (str) => str.split(' | ').flatMap((part) => {
+    const match = part.match(/^(error|warning|info|expected): (.*)$/i);
+    return match ? [{ severity: match[1].toLowerCase(), message: match[2], expected: match[1].toLowerCase() === 'expected' }] : [];
+  });
+  const site = records.find((row) => get(row, 'Record type') === 'site');
+  const pageRows = records.filter((row) => get(row, 'Record type') === 'page');
+  if (!site || !pageRows.length) throw new Error('This CSV does not contain a site summary and page records.');
+  const origin = get(site, 'URL') || get(pageRows[0], 'URL');
+  return {
+    origin,
+    startUrl: get(site, 'Audit seed URL') || origin,
+    auditedAt: get(site, 'Audit generated at'),
+    version: get(site, 'Engine version'),
+    environment: get(site, 'Environment') || 'live',
+    summary: {
+      robotsBlockedPages: Number(get(site, 'Summary robots blocked pages')) || 0,
+    },
+    site: { crawlCoverage: { percent: Number(get(site, 'Sitemap coverage %')) || 0 } },
+    siteIssues: issues(get(site, 'Issues')),
+    pages: pageRows.map((row) => ({
+      url: get(row, 'URL'),
+      title: get(row, 'Title'),
+      description: get(row, 'Meta description'),
+      canonical: get(row, 'Canonical'),
+      indexability: { status: get(row, 'Indexability') },
+      headings: { h1: get(row, 'H1 text') ? get(row, 'H1 text').split(' | ') : [] },
+      issues: issues(get(row, 'Issues')),
+    })),
+    importedCsv: true,
+  };
+}
+
 function compareAudits(previous, current, pathAware = false) {
-  const previousIssues = auditIssueMap(previous, pathAware);
-  const currentIssues = auditIssueMap(current, pathAware);
+  const useMessages = Boolean(previous.importedCsv);
+  const previousIssues = comparisonIssues(previous, pathAware, useMessages);
+  const currentIssues = comparisonIssues(current, pathAware, useMessages);
   const newIssues = [];
   const fixedIssues = [];
   const changedIssues = [];
@@ -624,7 +699,8 @@ function renderComparison(previous, current) {
     (launchComparison
       ? 'Pages are matched by path so staging and production may use different hostnames. '
       : '') +
-    'Compared locally in your browser; the previous file is not uploaded.';
+    'Compared locally in your browser; the previous file is not uploaded.' +
+    (previous.importedCsv ? ' CSV comparison matches issues by message rather than stable issue code; review issue counts when wording has changed.' : '');
 
   comparisonSummary.innerHTML = [
     ['New issues', diff.newIssues.length, diff.newIssues.length ? 'bad' : ''],
@@ -840,7 +916,10 @@ compareAuditFile?.addEventListener('change', async () => {
   if (!file || !latestResult) return;
 
   try {
-    const previous = JSON.parse(await file.text());
+    const content = await file.text();
+    const previous = file.name.toLowerCase().endsWith('.csv')
+      ? parseAuditCsv(content)
+      : JSON.parse(content);
     renderComparison(previous, latestResult);
   } catch (error) {
     comparisonTitle.textContent = 'Comparison could not be created';
