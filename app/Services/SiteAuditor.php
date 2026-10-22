@@ -390,7 +390,7 @@ class SiteAuditor
                     }
                 }
             }
-            $progress?.__invoke(count($pages));
+            if ($progress !== null) { $progress(count($pages)); }
         }
 
         foreach ($pages as &$page) {
