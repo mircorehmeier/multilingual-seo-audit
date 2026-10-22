@@ -14,12 +14,12 @@ class PruneSeoAudits extends Command
     public function handle(): int
     {
         DB::table('audit_runs')->where('expires_at', '<=', now())
-            ->orderBy('created_at')->chunk(100, function ($runs): void {
+            ->orderBy('created_at')->chunkById(100, function ($runs): void {
                 foreach ($runs as $run) {
                     Storage::disk('local')->delete('seo-audits/'.$run->id.'.json.gz');
                     DB::table('audit_runs')->where('id', $run->id)->delete();
                 }
-            });
+            }, 'id');
         $this->info('Expired SEO audits removed.');
         return self::SUCCESS;
     }
