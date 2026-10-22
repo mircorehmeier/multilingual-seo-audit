@@ -235,3 +235,9 @@ footer p { margin: 0; }
 .opportunity-group summary { cursor: pointer; display: flex; align-items: center; flex-wrap: wrap; gap: 9px; }
 .opportunity-group summary strong { flex: 1; min-width: 130px; }
 .opportunity-group .pattern-urls { max-height: 300px; overflow: auto; overflow-wrap: anywhere; }
+
+/* v1.4 SEO priority groups — the 16 metric cards remain first. */
+.priority-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-top: 16px; }
+.priority-column { min-width: 0; }
+.priority-column h4 { margin: 0 0 12px; }
+@media(max-width:850px) { .priority-grid { grid-template-columns: 1fr; } }
