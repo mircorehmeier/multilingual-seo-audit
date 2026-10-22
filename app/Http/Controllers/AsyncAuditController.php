@@ -5,7 +5,7 @@ namespace App\Http\Controllers;
 use App\Jobs\RunSeoAudit;
 use App\Services\UrlGuard;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Response;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -74,7 +74,7 @@ class AsyncAuditController
         ]);
     }
 
-    public function result(string $id): JsonResponse|Response
+    public function result(string $id): JsonResponse|StreamedResponse
     {
         $run = DB::table('audit_runs')->where('id', $id)
             ->where('expires_at', '>', now())->first();
@@ -88,10 +88,32 @@ class AsyncAuditController
         if (! Storage::disk('local')->exists($path)) {
             return response()->json(['error' => 'Audit result file is unavailable.'], 404);
         }
-        $contents = gzdecode(Storage::disk('local')->get($path));
-        if ($contents === false) {
-            return response()->json(['error' => 'Audit result is corrupted.'], 500);
+        // Stream the decompressed report in chunks rather than allocating the
+        // complete gzip and JSON payload inside PHP's web-request memory limit.
+        $absolutePath = Storage::disk('local')->path($path);
+        $handle = @gzopen($absolutePath, 'rb');
+        if ($handle === false) {
+            return response()->json(['error' => 'Could not open the saved audit report.'], 500);
         }
-        return response($contents, 200, ['Content-Type' => 'application/json', 'Cache-Control' => 'no-store']);
+        gzclose($handle);
+
+        return response()->stream(function () use ($absolutePath): void {
+            $handle = gzopen($absolutePath, 'rb');
+            try {
+                while (! gzeof($handle)) {
+                    $chunk = gzread($handle, 65536);
+                    if ($chunk === false) {
+                        throw new \RuntimeException('Could not read saved audit data.');
+                    }
+                    echo $chunk;
+                }
+            } finally {
+                gzclose($handle);
+            }
+        }, 200, [
+            'Content-Type' => 'application/json; charset=utf-8',
+            'Cache-Control' => 'no-store',
+            'X-Accel-Buffering' => 'no',
+        ]);
     }
 }
