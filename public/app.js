@@ -371,7 +371,7 @@ function renderSiteOpportunities(result) {
   for (const [field, label] of [['title', 'Titles'], ['description', 'Descriptions']]) {
     const byText = new Map();
     for (const page of eligible) {
-      const value = String(page[field] || '').trim().replace(/\\s+/g, ' ');
+      const value = String(page[field] || '').trim().replace(/\s+/g, ' ');
       if (!value) continue;
       const key = value.toLocaleLowerCase();
       if (!byText.has(key)) byText.set(key, []);
