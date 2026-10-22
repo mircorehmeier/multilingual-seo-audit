@@ -15,6 +15,7 @@
       <span>Multilingual SEO Audit</span>
       <span class="version-badge">v{{ config('audit.version') }}</span>
     </a>
+    <a class="github-link" href="/admin/audits">Private history ↗</a>
     <a class="github-link" href="https://github.com/mircorehmeier/multilingual-seo-audit" target="_blank" rel="noreferrer">GitHub ↗</a>
   </header>
 
