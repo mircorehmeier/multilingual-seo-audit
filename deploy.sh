@@ -92,8 +92,14 @@ if command -v git >/dev/null 2>&1 && git rev-parse --is-inside-work-tree >/dev/n
     COMMIT_SHA="$(git rev-parse --short HEAD)"
 fi
 
-# Read the release version from bootstrapped Laravel (env() is unavailable to bare PHP).
-APP_VERSION="$("$PHP_BIN" -r 'require "vendor/autoload.php"; $app = require "bootstrap/app.php"; $app->make("Illuminate\\Contracts\\Console\\Kernel")->bootstrap(); echo config("audit.version", "unknown");')"
+# Read the version directly from the source file. This avoids cached config
+# and loading Laravel from a standalone command-line PHP process.
+APP_VERSION="$(grep -m1 "'version' =>" config/audit.php | cut -d "'" -f4)"
+if [ -z "$APP_VERSION" ]; then
+    echo "ERROR: Could not read application version from config/audit.php."
+    exit 1
+fi
+echo "==> Deployed application version: $APP_VERSION"
 printf 'ok - laravel %s\ncommit: %s\n' "$APP_VERSION" "$COMMIT_SHA" > public/deploy-status.txt
 
 echo "==> Laravel deploy complete"
