@@ -336,6 +336,50 @@ function renderRows() {
 }
 
 
+
+function renderSeoPriorities(result) {
+  const panel = document.querySelector('#seo-priorities');
+  const container = document.querySelector('#seo-priority-list');
+  const note = document.querySelector('#seo-priority-note');
+  if (!panel || !container || !note) return;
+  const buckets = new Map();
+  const pages = result.pages || [];
+  const keyIssue = issue => String(issue.code || 'other');
+  for (const page of pages) {
+    const indexed = page.indexability?.status === 'indexable';
+    const protectedPage = page.indexability?.status === 'noindex' ||
+      /noindex/i.test(String(page.robots || '') + ' ' + String(page.xRobotsTag || ''));
+    for (const issue of page.issues || []) {
+      if (issue.expected) continue;
+      let priority;
+      if (issue.severity === 'error' && !protectedPage) priority = 0;
+      else if (indexed && issue.severity === 'warning') priority = 1;
+      else priority = 2;
+      // Missing metadata on intentionally excluded pages is not an urgent fix.
+      if (protectedPage && /^(title_|description_|canonical_missing)/.test(keyIssue(issue))) priority = 2;
+      const code = keyIssue(issue);
+      const groupKey = priority + ':' + code;
+      if (!buckets.has(groupKey)) buckets.set(groupKey, {priority, code, example: issue.message || code, urls: new Set()});
+      buckets.get(groupKey).urls.add(page.url);
+    }
+  }
+  const labels = ['Fix first', 'Improve', 'Review / optional'];
+  const entries = [...buckets.values()].sort((a,b) => a.priority - b.priority || b.urls.size - a.urls.size);
+  container.innerHTML = labels.map((label, priority) => {
+    const matches = entries.filter(e => e.priority === priority);
+    return '<div class="priority-column"><h4>' + label + ' <span class="pill">' + matches.length + ' groups</span></h4>' +
+      (matches.length ? matches.slice(0, 12).map(e => {
+        const urls = [...e.urls];
+        return '<details class="opportunity-group"><summary><strong>' + escapeHtml(e.code.replaceAll('_', ' ')) + '</strong><span class="pill">' + urls.length + ' pages</span></summary>' +
+          '<p class="muted">' + escapeHtml(e.example) + '</p><ul class="pattern-urls">' +
+          urls.slice(0, 20).map(u => '<li>' + linkHtml(u) + '</li>').join('') +
+          (urls.length > 20 ? '<li class="muted">+' + (urls.length - 20) + ' more</li>' : '') + '</ul></details>';
+      }).join('') + (matches.length > 12 ? '<p class="muted">+' + (matches.length - 12) + ' additional groups; see page table.</p>' : '') : '<p class="no-issues">None identified in this category.</p>') + '</div>';
+  }).join('');
+  note.textContent = 'Heuristic priorities based on audited pages, indexability and severity — not a Google ranking score. An intentional noindex on legal or staging content is not automatically a high-priority problem. Detailed page and site-level findings remain available below.';
+  panel.hidden = false;
+}
+
 function renderSiteOpportunities(result) {
   const panel = document.querySelector('#site-opportunities');
   const linksBody = document.querySelector('#link-opportunities');
@@ -941,6 +985,7 @@ function render(result) {
   renderEnvironmentStatus(result);
   renderPatternInsights(result);
   renderSiteOpportunities(result);
+  renderSeoPriorities(result);
   renderOriginNormalization(result);
   renderSiteDiagnostics(result);
   renderCrawlCoverage(result);
@@ -1072,7 +1117,7 @@ form.addEventListener('submit', async (event) => {
       throw new Error('Audit failed (HTTP ' + response.status + '): ' +
         (payload.error || details || payload.message || 'Unknown server error.'));
     }
-    setStatus(`Done. Audited ${payload.summary.pages} pages as ${auditEnvironment(payload)}.`);
+    setStatus(payload.archiveWarning || `Done. Audited ${payload.summary.pages} pages as ${auditEnvironment(payload)}; saved in private history for 7 days.`);
     render(payload);
   } catch (error) {
     setStatus(error.message || 'Audit failed.', true);
