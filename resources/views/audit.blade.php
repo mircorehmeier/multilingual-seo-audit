@@ -91,6 +91,14 @@
         <p id="crawl-coverage-note" class="environment-note"></p>
       </section>
 
+      <section id="site-opportunities" class="environment-panel" hidden aria-label="Link and metadata opportunities">
+        <div class="intelligence-heading"><div><p class="eyebrow">SEO opportunities</p><h3>Internal links & duplicate metadata</h3></div></div>
+        <div class="intelligence-grid opportunity-columns">
+          <div><h4>Internal-link opportunities</h4><div id="link-opportunities"></div></div>
+          <div><h4>Repeated metadata groups</h4><div id="metadata-opportunities"></div></div>
+        </div>
+      </section>
+
       <section id="environment-status" class="environment-panel" hidden aria-live="polite">
         <div class="intelligence-heading">
           <div>
