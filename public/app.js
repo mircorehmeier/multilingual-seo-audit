@@ -335,6 +335,65 @@ function renderRows() {
   }
 }
 
+
+function renderSiteOpportunities(result) {
+  const panel = document.querySelector('#site-opportunities');
+  const linksBody = document.querySelector('#link-opportunities');
+  const duplicatesBody = document.querySelector('#metadata-opportunities');
+  if (!panel || !linksBody || !duplicatesBody) return;
+  const pages = result.pages || [];
+  const eligible = pages.filter(page => page.indexability?.status === 'indexable' && Number(page.status) >= 200 && Number(page.status) < 300);
+  const coverageComplete = result.site?.crawlCoverage?.complete === true;
+  const suggestions = [];
+  const add = (title, matches, detail) => {
+    if (!matches.length) return;
+    const shown = matches.slice(0, 30);
+    const rest = matches.length - shown.length;
+    suggestions.push('<details class="opportunity-group"><summary><strong>' + escapeHtml(title) + '</strong><span class="pill">' + matches.length + ' pages</span></summary>' +
+      '<p class="muted">' + escapeHtml(detail) + '</p><ul class="pattern-urls">' +
+      shown.map(page => '<li>' + linkHtml(page.url) + ' · ' + escapeHtml(String(page.internalLinks?.incoming ?? 0)) + ' inbound · depth ' + escapeHtml(String(page.internalLinks?.crawlDepth ?? 'unknown')) + '</li>').join('') +
+      (rest ? '<li class="muted">+' + rest + ' more (export JSON/CSV for the full list)</li>' : '') + '</ul></details>');
+  };
+  add('Few inbound links (0–1)', eligible.filter(p => p.inSitemap === true && (p.internalLinks?.incoming ?? 0) <= 1),
+    'Counts reflect only links found in audited pages, not the entire internet. These are opportunities, not confirmed orphan pages.');
+  add('Deep pages (4+ clicks)', eligible.filter(p => Number.isInteger(p.internalLinks?.crawlDepth) && p.internalLinks.crawlDepth >= 4),
+    'Shortest click path from the audit start page, based on audited internal links.');
+  add('No links from article content', eligible.filter(p => p.inSitemap === true && (p.internalLinks?.contextualIncoming ?? 0) === 0),
+    'Site-wide navigation links may exist. Consider relevant editorial links where appropriate.');
+  add('Linked pages absent from sitemap', eligible.filter(p => p.inSitemap === false && (p.internalLinks?.incoming ?? 0) > 0),
+    'Review whether these indexable pages belong in the sitemap; some omissions are intentional.');
+  linksBody.innerHTML = '<p class="muted">' + (coverageComplete
+    ? 'All discovered sitemap URLs were checked; counts still reflect only crawled links.'
+    : 'Partial sitemap coverage: do not interpret weakly linked pages as confirmed orphans.') +
+    '</p>' + (suggestions.join('') || '<p class="no-issues">No link opportunities matched these thresholds.</p>');
+
+  const groups = [];
+  for (const [field, label] of [['title', 'Titles'], ['description', 'Descriptions']]) {
+    const byText = new Map();
+    for (const page of eligible) {
+      const value = String(page[field] || '').trim().replace(/\\s+/g, ' ');
+      if (!value) continue;
+      const key = value.toLocaleLowerCase();
+      if (!byText.has(key)) byText.set(key, []);
+      byText.get(key).push(page);
+    }
+    for (const matches of byText.values()) {
+      if (matches.length < 2) continue;
+      const langs = new Set(matches.map(p => String(p.lang || '').toLowerCase()).filter(Boolean));
+      groups.push({ label, matches, text: String(matches[0][field] || ''), multilingual: langs.size > 1 });
+    }
+  }
+  groups.sort((a,b) => b.matches.length - a.matches.length);
+  duplicatesBody.innerHTML = '<p class="muted">' + groups.length + ' duplicate metadata groups across indexable audited pages. Repeated templates, pagination, and untranslated variants may need different solutions. Group counts do not replace existing per-page issue totals.</p>' +
+    (groups.slice(0, 20).map(group => '<details class="opportunity-group"><summary><strong>' + escapeHtml(group.label) + '</strong><span class="pill">' + group.matches.length + ' pages</span>' +
+      (group.multilingual ? '<span class="pill">Multiple languages</span>' : '') + '</summary><p class="muted">' + escapeHtml(group.text) + '</p><ul class="pattern-urls">' +
+      group.matches.slice(0, 20).map(p => '<li>' + linkHtml(p.url) + '</li>').join('') +
+      (group.matches.length > 20 ? '<li class="muted">+' + (group.matches.length - 20) + ' more</li>' : '') + '</ul></details>').join('') ||
+      '<p class="no-issues">No duplicate title or description groups found among audited indexable pages.</p>') +
+    (groups.length > 20 ? '<p class="muted">Showing 20 largest groups of ' + groups.length + '. Export the report for additional details.</p>' : '');
+  panel.hidden = false;
+}
+
 function renderPatternInsights(result) {
   const patterns = result.site?.patterns || [];
   patternInsightsMeta.textContent = patterns.length
@@ -881,6 +940,7 @@ function render(result) {
   }
   renderEnvironmentStatus(result);
   renderPatternInsights(result);
+  renderSiteOpportunities(result);
   renderOriginNormalization(result);
   renderSiteDiagnostics(result);
   renderCrawlCoverage(result);
