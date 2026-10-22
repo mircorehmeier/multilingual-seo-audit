@@ -15,6 +15,9 @@ class AsyncAuditController
 {
     public function start(Request $request, UrlGuard $urls): JsonResponse
     {
+        if (config('queue.default') !== 'database') {
+            return response()->json(['error' => 'Background queue is not configured. Set QUEUE_CONNECTION=database and run the queue worker.'], 503);
+        }
         $validated = $request->validate([
             'url' => ['required', 'string', 'max:2048'],
             'maxPages' => ['required', 'integer', 'min:1', 'max:1000'],
