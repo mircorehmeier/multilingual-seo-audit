@@ -74,6 +74,12 @@
       <p class="summary-hint">Click any metric for an explanation and the URLs or checks behind that value.</p>
       <div id="summary-detail" class="summary-detail" hidden aria-live="polite"></div>
 
+      <section id="seo-priorities" class="environment-panel" hidden aria-label="SEO priorities">
+        <div class="intelligence-heading"><div><p class="eyebrow">Action plan</p><h3>SEO priorities</h3></div></div>
+        <p id="seo-priority-note" class="environment-note"></p>
+        <div id="seo-priority-list" class="priority-grid"></div>
+      </section>
+
       <section id="hreflang-intelligence" class="environment-panel" hidden aria-label="Hreflang relationships">
         <div class="intelligence-heading">
           <div><p class="eyebrow">Multilingual intelligence</p><h3>Hreflang relationships</h3></div>
