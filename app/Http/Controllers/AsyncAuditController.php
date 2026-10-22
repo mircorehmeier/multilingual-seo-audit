@@ -33,6 +33,13 @@ class AsyncAuditController
             return response()->json(['error' => $e->getMessage()], 400);
         }
 
+        // Limit queued/running load: these crawls can be resource intensive.
+        $active = DB::table('audit_runs')->whereIn('status', ['queued', 'running'])
+            ->where('expires_at', '>', now())->count();
+        if ($active >= 5) {
+            return response()->json(['error' => 'Too many pending audits. Try again after existing audits complete.'], 429);
+        }
+
         // Small retention window; old reports are not stored permanently.
         $id = (string) Str::uuid();
         DB::table('audit_runs')->insert([
