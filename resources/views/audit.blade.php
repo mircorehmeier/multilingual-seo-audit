@@ -43,11 +43,14 @@
             <option value="25" selected>25</option>
             <option value="50">50</option>
             <option value="100">100</option>
+            <option value="250">250 (background)</option>
+            <option value="500">500 (background)</option>
+            <option value="1000">1,000 (background)</option>
           </select>
         </label>
         <button id="run-button" type="submit">Run audit</button>
       </form>
-      <p class="form-note">Same-origin crawl · Language-balanced sitemap discovery · Live or staging-aware interpretation · Public HTTP/HTTPS targets · Maximum 100 pages per synchronous audit</p>
+      <p class="form-note">Same-origin crawl · Language-balanced sitemap discovery · Live or staging-aware interpretation · Public HTTP/HTTPS targets · Up to 100 pages synchronous · 250–1,000 pages via background worker · Completed reports kept for 7 days</p>
       <div id="status" class="status" aria-live="polite"></div>
     </section>
 
