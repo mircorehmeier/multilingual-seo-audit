@@ -1233,3 +1233,21 @@ downloadCsv.addEventListener('click', () => {
   download(auditExportFilename(latestResult, 'csv'), rows.map((row) => row.map(csvEscape).join(',')).join('\n'), 'text/csv;charset=utf-8');
 });
 
+
+
+async function openSavedAuditFromUrl() {
+  const id = new URLSearchParams(window.location.search).get('audit');
+  if (!id || !/^[a-f0-9-]{36}$/i.test(id)) return;
+  setStatus('Opening saved audit ' + id + '…');
+  try {
+    const response = await fetch('/api/audits/' + encodeURIComponent(id) + '/result');
+    if (!response.ok) throw new Error('Saved audit could not be loaded (HTTP ' + response.status + '). It may have expired.');
+    const result = await response.json();
+    render(result);
+    setStatus('Loaded saved audit · ' + (result.summary?.pages ?? result.pages?.length ?? 0) + ' pages.');
+  } catch (error) {
+    setStatus(error.message || 'Could not open saved audit.', true);
+  }
+}
+
+openSavedAuditFromUrl();
