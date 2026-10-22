@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Jobs\RunSeoAudit;
 use App\Services\UrlGuard;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Response;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -73,7 +74,7 @@ class AsyncAuditController
         ]);
     }
 
-    public function result(string $id): JsonResponse
+    public function result(string $id): JsonResponse|Response
     {
         $run = DB::table('audit_runs')->where('id', $id)
             ->where('expires_at', '>', now())->first();
