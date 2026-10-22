@@ -905,7 +905,19 @@ form.addEventListener('submit', async (event) => {
         if (current.status === 'completed') break;
       }
       const resultResponse = await fetch('/api/audits/' + encodeURIComponent(id) + '/result');
-      if (!resultResponse.ok) throw new Error('Could not load completed audit (HTTP ' + resultResponse.status + ').');
+      if (!resultResponse.ok) {
+        const responseBody = await resultResponse.text();
+        let detail = '';
+        try {
+          const parsed = JSON.parse(responseBody);
+          detail = parsed.error || parsed.message || '';
+        } catch {
+          detail = responseBody.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 180);
+        }
+        throw new Error('Could not load completed audit (HTTP ' + resultResponse.status + '). ' +
+          (detail || 'Check the Laravel log for the exact server-side error.') +
+          ' Audit ID: ' + id);
+      }
       const completed = await resultResponse.json();
       setStatus('Done. Audited ' + completed.summary.pages + ' pages; saved temporarily for 7 days.');
       render(completed);
