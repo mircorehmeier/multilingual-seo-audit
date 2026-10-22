@@ -11,7 +11,7 @@ class ApplicationTest extends TestCase
         $this->get('/')
             ->assertOk()
             ->assertSee('Find multilingual SEO problems')
-            ->assertSee('0.9.0')
+            ->assertSee(config('audit.version'))
             ->assertDontSee('Running version')
             ->assertSee('summary-detail', false)
             ->assertSee('pattern-insights', false)
@@ -27,7 +27,7 @@ class ApplicationTest extends TestCase
             ->assertOk()
             ->assertJson([
                 'ok' => true,
-                'version' => '0.9.0-laravel',
+                'version' => config('audit.version').'-laravel',
             ]);
     }
 
