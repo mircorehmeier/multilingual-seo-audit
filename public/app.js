@@ -773,6 +773,31 @@ function renderEnvironmentStatus(result) {
   environmentStatus.hidden = false;
 }
 
+function renderHreflangIntelligence(result) {
+  const panel = document.querySelector('#hreflang-intelligence');
+  const metrics = document.querySelector('#hreflang-intelligence-metrics');
+  const note = document.querySelector('#hreflang-intelligence-note');
+  if (!panel || !metrics || !note) return;
+  const data = result.site?.hreflangRelationships;
+  if (!data) {
+    panel.hidden = true;
+    return;
+  }
+  const labels = [
+    ['Verified target links', data.checked],
+    ['Missing return links', data.missingReciprocal],
+    ['Non-indexable targets', data.nonIndexableTargets],
+    ['Canonical conflicts', data.canonicalConflicts],
+    ['Conflicting declarations', data.conflictingDeclarations],
+    ['Unverified targets', data.unverifiedTargets],
+  ];
+  metrics.innerHTML = labels.map(([label, value]) =>
+    '<div class="environment-stat"><span>' + escapeHtml(label) + '</span><strong>' + (Number(value) || 0) + '</strong></div>'
+  ).join('');
+  note.textContent = 'Checks use only fetched pages. Unverified means the target was not in the crawl, not that the translation is missing or broken. Findings are attached to the source page in the issues table. Counts represent declarations, not unique pages.';
+  panel.hidden = false;
+}
+
 function renderCrawlCoverage(result) {
   const panel = document.querySelector('#crawl-coverage');
   const metrics = document.querySelector('#crawl-coverage-metrics');
@@ -859,6 +884,7 @@ function render(result) {
   renderOriginNormalization(result);
   renderSiteDiagnostics(result);
   renderCrawlCoverage(result);
+  renderHreflangIntelligence(result);
   renderRows();
   results.hidden = false;
   results.scrollIntoView({ behavior: 'smooth', block: 'start' });
