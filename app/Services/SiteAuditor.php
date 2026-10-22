@@ -62,7 +62,7 @@ class SiteAuditor
         return $ordered;
     }
 
-    public function audit(string $startInput, int $requestedMaxPages = 25, string $environment = 'live'): array
+    public function audit(string $startInput, int $requestedMaxPages = 25, string $environment = 'live', ?callable $progress = null): array
     {
         $startInput = trim($startInput);
         $environment = strtolower(trim($environment));
@@ -75,7 +75,7 @@ class SiteAuditor
         }
 
         $inputUrl = $this->urls->assertPublic($startInput);
-        $maxPages = max(1, min(100, $requestedMaxPages));
+        $maxPages = max(1, min(1000, $requestedMaxPages));
 
         $seed = $this->resolveAuditSeed($inputUrl);
         $auditSeedUrl = $seed['seedUrl'];
@@ -390,6 +390,7 @@ class SiteAuditor
                     }
                 }
             }
+            $progress?.__invoke(count($pages));
         }
 
         foreach ($pages as &$page) {
