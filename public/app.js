@@ -885,8 +885,21 @@ form.addEventListener('submit', async (event) => {
         environment: environmentInput.value,
       }),
     });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.error || payload.message || 'Audit failed.');
+    const responseText = await response.text();
+    let payload;
+    try {
+      payload = JSON.parse(responseText);
+    } catch {
+      const hint = [502, 503, 504].includes(response.status)
+        ? 'The server or reverse proxy timed out during the crawl. Try 10–25 pages; larger sites need a background audit job.'
+        : 'The server returned a non-JSON response. Check the Plesk PHP/Laravel error logs.';
+      throw new Error('Audit failed (HTTP ' + response.status + '). ' + hint);
+    }
+    if (!response.ok) {
+      const details = payload.errors ? Object.values(payload.errors).flat().join(' ') : '';
+      throw new Error('Audit failed (HTTP ' + response.status + '): ' +
+        (payload.error || details || payload.message || 'Unknown server error.'));
+    }
     setStatus(`Done. Audited ${payload.summary.pages} pages as ${auditEnvironment(payload)}.`);
     render(payload);
   } catch (error) {
