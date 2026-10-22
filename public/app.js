@@ -882,6 +882,35 @@ form.addEventListener('submit', async (event) => {
   const progressTimer = setInterval(describeProgress, 1000);
 
   try {
+    const largeAudit = Number(maxPagesInput.value) > 100;
+    if (largeAudit) {
+      const creation = await fetch('/api/audits', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          url: urlInput.value, maxPages: Number(maxPagesInput.value), environment: environmentInput.value,
+        }),
+      });
+      const started = await creation.json();
+      if (!creation.ok) throw new Error(started.error || started.message || 'Could not queue audit.');
+      const id = started.id;
+      while (true) {
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+        const statusResponse = await fetch('/api/audits/' + encodeURIComponent(id) + '/status');
+        const current = await statusResponse.json();
+        if (!statusResponse.ok) throw new Error(current.error || 'Could not check audit status.');
+        setStatus('Background audit ' + current.status + ' · ' + current.pagesDone + ' / ' + current.maxPages +
+          ' pages processed · ' + Math.floor((Date.now() - startedAt) / 1000) + 's elapsed.');
+        if (current.status === 'failed') throw new Error(current.error || 'Background audit failed.');
+        if (current.status === 'completed') break;
+      }
+      const resultResponse = await fetch('/api/audits/' + encodeURIComponent(id) + '/result');
+      if (!resultResponse.ok) throw new Error('Could not load completed audit (HTTP ' + resultResponse.status + ').');
+      const completed = await resultResponse.json();
+      setStatus('Done. Audited ' + completed.summary.pages + ' pages; saved temporarily for 7 days.');
+      render(completed);
+      return;
+    }
     const response = await fetch('/api/audit', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
