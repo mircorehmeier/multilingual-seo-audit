@@ -55,41 +55,10 @@ mkdir -p storage/framework/cache/data storage/framework/sessions storage/framewo
 touch database/database.sqlite
 chmod ug+rw database/database.sqlite database || true
 "$PHP_BIN" -r 'exit(extension_loaded("pdo_sqlite") ? 0 : 1);' || {
-    echo "ERROR: Enable the PHP pdo_sqlite extension in Plesk to use queued audits."
+    echo "ERROR: Enable pdo_sqlite in Plesk CLI PHP."
     exit 1
 }
-# Migrate default sync queue to a real database queue without overwriting other .env settings.
-if grep -q '^QUEUE_CONNECTION=sync
-chmod -R ug+rw storage bootstrap/cache || true
-
-echo "==> Installing Composer dependencies"
-"$PHP_BIN" -d memory_limit=1024M "$COMPOSER_PHAR" install     --no-dev     --prefer-dist     --no-interaction     --no-progress     --optimize-autoloader
-
-if ! grep -Eq '^APP_KEY=base64:.+' .env; then
-    echo "==> Generating Laravel application key"
-    "$PHP_BIN" artisan key:generate --force
-fi
-
-echo "==> Clearing old caches"
-"$PHP_BIN" artisan optimize:clear
-
-echo "==> Applying database migrations for background audits"
-"$PHP_BIN" artisan migrate --force
-
-echo "==> Caching production configuration and views"
-"$PHP_BIN" artisan config:cache
-"$PHP_BIN" artisan view:cache
-
-COMMIT_SHA="unknown"
-if command -v git >/dev/null 2>&1 && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    COMMIT_SHA="$(git rev-parse --short HEAD)"
-fi
-
-APP_VERSION="$("$PHP_BIN" -r '$config = require "config/audit.php"; echo $config["version"] ?? "unknown";')"
-printf 'ok - laravel %s\ncommit: %s\n' "$APP_VERSION" "$COMMIT_SHA" > public/deploy-status.txt
-
-echo "==> Laravel deploy complete"
- .env; then
+if grep -q '^QUEUE_CONNECTION=sync$' .env; then
     sed -i 's/^QUEUE_CONNECTION=sync$/QUEUE_CONNECTION=database/' .env
 fi
 if ! grep -q '^DB_QUEUE_RETRY_AFTER=' .env; then
@@ -101,7 +70,7 @@ fi
 chmod -R ug+rw storage bootstrap/cache || true
 
 echo "==> Installing Composer dependencies"
-"$PHP_BIN" -d memory_limit=1024M "$COMPOSER_PHAR" install     --no-dev     --prefer-dist     --no-interaction     --no-progress     --optimize-autoloader
+"$PHP_BIN" -d memory_limit=1024M "$COMPOSER_PHAR" install --no-dev --prefer-dist --no-interaction --no-progress --optimize-autoloader
 
 if ! grep -Eq '^APP_KEY=base64:.+' .env; then
     echo "==> Generating Laravel application key"
@@ -110,6 +79,9 @@ fi
 
 echo "==> Clearing old caches"
 "$PHP_BIN" artisan optimize:clear
+
+echo "==> Applying database migrations"
+"$PHP_BIN" artisan migrate --force
 
 echo "==> Caching production configuration and views"
 "$PHP_BIN" artisan config:cache
