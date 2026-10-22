@@ -467,6 +467,9 @@ class SiteAuditor
         }
         unset($page);
 
+        // Only compare targets actually fetched; uncrawled translations remain unknown.
+        $hreflangRelationships = app(HreflangRelationshipAnalyzer::class)->analyze($pages);
+
         $environmentDiagnostics = $this->applyEnvironmentContext(
             $pages,
             $site['issues'],
@@ -533,6 +536,7 @@ class SiteAuditor
                 'sitemaps' => $site['sitemaps'],
                 'sitemapUrlsDiscovered' => $site['sitemapUrlsDiscovered'],
                 'crawlCoverage' => $crossPage['crawlCoverage'],
+                'hreflangRelationships' => $hreflangRelationships,
                 'redirects' => array_values($redirectedRequests),
                 'linkTargetChecks' => array_values($targetChecks['checks']),
                 'originNormalization' => $originNormalization,
