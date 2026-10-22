@@ -47,7 +47,7 @@
         </label>
         <button id="run-button" type="submit">Run audit</button>
       </form>
-      <p class="form-note">Same-origin crawl · Sitemap-assisted discovery · Live or staging-aware interpretation · Public HTTP/HTTPS targets · Maximum 100 pages</p>
+      <p class="form-note">Same-origin crawl · Language-balanced sitemap discovery · Live or staging-aware interpretation · Public HTTP/HTTPS targets · Maximum 100 pages per synchronous audit</p>
       <div id="status" class="status" aria-live="polite"></div>
     </section>
 
