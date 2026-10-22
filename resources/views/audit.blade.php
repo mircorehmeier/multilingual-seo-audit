@@ -70,6 +70,15 @@
         </div>
       </div>
 
+      <section id="crawl-coverage" class="environment-panel" hidden aria-label="Crawl coverage">
+        <div class="intelligence-heading">
+          <div><p class="eyebrow">Coverage insights</p><h3>Crawl coverage</h3></div>
+          <span class="muted">Sitemap vs discovered pages</span>
+        </div>
+        <div id="crawl-coverage-metrics" class="environment-grid"></div>
+        <p id="crawl-coverage-note" class="environment-note"></p>
+      </section>
+
       <div id="summary" class="summary-grid" aria-label="Audit summary"></div>
       <p class="summary-hint">Click any metric for an explanation and the URLs or checks behind that value.</p>
       <div id="summary-detail" class="summary-detail" hidden aria-live="polite"></div>
