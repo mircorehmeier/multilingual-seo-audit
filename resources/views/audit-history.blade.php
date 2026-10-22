@@ -21,7 +21,7 @@
 </head>
 <body>
   <main class="history-wrap">
-    <div class="history-top"><div><p class="eyebrow">Private admin area</p><h1>Recent audits</h1><p class="muted">All websites · Background audits · Reports expire after 7 days</p></div><a class="secondary" href="/">← Back to auditor</a></div>
+    <div class="history-top"><div><p class="eyebrow">Private admin area</p><h1>Recent audits</h1><p class="muted">All websites · Quick and background audits · Reports expire after 7 days</p></div><a class="secondary" href="/">← Back to auditor</a></div>
     <form method="get" class="history-search"><label for="domain">Filter domain</label><input id="domain" name="domain" value="{{ $search }}" placeholder="e.g. brasilll.com"><button type="submit">Filter</button></form>
     <div style="overflow-x:auto">
       <table class="history-table">
@@ -54,7 +54,7 @@
       <span>Showing {{ $runs->firstItem() ?? 0 }}–{{ $runs->lastItem() ?? 0 }} of {{ $runs->total() }}</span>
       <span>@if($runs->previousPageUrl())<a href="{{ $runs->previousPageUrl() }}">← Previous</a>@endif @if($runs->nextPageUrl())<a href="{{ $runs->nextPageUrl() }}">Next →</a>@endif</span>
     </div>
-    <p class="muted">This private listing shows only temporary background audits. Quick audits (10–100 pages) are not saved. Scheduled cleanup permanently deletes expired reports.</p>
+    <p class="muted">This private listing includes completed quick and background audits. Scheduled cleanup permanently deletes expired reports.</p>
   </main>
 </body>
 </html>
