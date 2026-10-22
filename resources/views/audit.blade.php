@@ -70,6 +70,14 @@
         </div>
       </div>
 
+      <section id="hreflang-intelligence" class="environment-panel" hidden aria-label="Hreflang relationships">
+        <div class="intelligence-heading">
+          <div><p class="eyebrow">Multilingual intelligence</p><h3>Hreflang relationships</h3></div>
+        </div>
+        <div id="hreflang-intelligence-metrics" class="environment-grid"></div>
+        <p id="hreflang-intelligence-note" class="environment-note"></p>
+      </section>
+
       <section id="crawl-coverage" class="environment-panel" hidden aria-label="Crawl coverage">
         <div class="intelligence-heading">
           <div><p class="eyebrow">Coverage insights</p><h3>Crawl coverage</h3></div>
