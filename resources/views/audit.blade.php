@@ -70,6 +70,10 @@
         </div>
       </div>
 
+      <div id="summary" class="summary-grid" aria-label="Audit summary"></div>
+      <p class="summary-hint">Click any metric for an explanation and the URLs or checks behind that value.</p>
+      <div id="summary-detail" class="summary-detail" hidden aria-live="polite"></div>
+
       <section id="hreflang-intelligence" class="environment-panel" hidden aria-label="Hreflang relationships">
         <div class="intelligence-heading">
           <div><p class="eyebrow">Multilingual intelligence</p><h3>Hreflang relationships</h3></div>
@@ -86,10 +90,6 @@
         <div id="crawl-coverage-metrics" class="environment-grid"></div>
         <p id="crawl-coverage-note" class="environment-note"></p>
       </section>
-
-      <div id="summary" class="summary-grid" aria-label="Audit summary"></div>
-      <p class="summary-hint">Click any metric for an explanation and the URLs or checks behind that value.</p>
-      <div id="summary-detail" class="summary-detail" hidden aria-live="polite"></div>
 
       <section id="environment-status" class="environment-panel" hidden aria-live="polite">
         <div class="intelligence-heading">
