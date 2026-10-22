@@ -830,6 +830,51 @@ function renderComparison(previous, current) {
   auditComparison.hidden = false;
 }
 
+function renderProgressComparison(previous, current) {
+  if (!previous?.pages || !current?.pages || comparisonHost(previous) !== comparisonHost(current) ||
+      auditEnvironment(previous) !== auditEnvironment(current)) {
+    throw new Error('Progress comparison requires the same website and environment.');
+  }
+  const oldPages = new Set(previous.pages.map(page => page.url));
+  const newPages = new Set(current.pages.map(page => page.url));
+  const shared = new Set([...oldPages].filter(url => newPages.has(url)));
+  const oldIssues = auditIssueMap(previous);
+  const newIssues = auditIssueMap(current);
+  const comparable = (item) => item.scope === 'Site' || shared.has(item.url);
+  const fixed = [...oldIssues].filter(([key, issue]) => comparable(issue) && !newIssues.has(key)).map(([, issue]) => issue);
+  const introduced = [...newIssues].filter(([key, issue]) => comparable(issue) && !oldIssues.has(key)).map(([, issue]) => issue);
+  const remaining = [...newIssues].filter(([key, issue]) => oldIssues.has(key) && comparable(issue)).map(([, issue]) => issue);
+  const coverageChanged = previous.pages.length !== current.pages.length ||
+    previous.site?.crawlCoverage?.percent !== current.site?.crawlCoverage?.percent;
+  const date = audit => audit.auditedAt ? new Date(audit.auditedAt).toLocaleString() : 'Unknown date';
+
+  comparisonTitle.textContent = 'Progress since your last audit';
+  comparisonMeta.textContent = date(previous) + ' → ' + date(current) +
+    ' · Same domain and environment · Only the immediate previous audit is used.';
+  comparisonSummary.innerHTML = [
+    ['Fixed since last audit', fixed.length, 'good'],
+    ['Still open', remaining.length, ''],
+    ['New findings', introduced.length, introduced.length ? 'bad' : ''],
+    ['Pages checked in both', shared.size, ''],
+  ].map(([label, count, type]) => '<div class="comparison-card ' + type + '"><span>' +
+    escapeHtml(label) + '</span><strong>' + count + '</strong></div>').join('');
+  const note = coverageChanged
+    ? 'The two crawls have different page counts or sitemap coverage. Only issues on shared URLs (plus site-wide findings) are classified as fixed or new; pages missing from one crawl are NOT counted as resolved.'
+    : 'Fixed means a previously detected finding is no longer present on the same audited URL. It does not guarantee improved rankings.';
+  comparisonDetails.innerHTML = '<div class="comparison-group" style="grid-column:1/-1"><p class="muted">' +
+    escapeHtml(note) + '</p></div>' +
+    '<div class="comparison-group"><h4>✅ Fixed</h4>' +
+    comparisonList(fixed, comparisonIssueItem, 'No previously reported findings disappeared on comparable URLs.') + '</div>' +
+    '<div class="comparison-group"><h4>⚠️ Still needs attention</h4>' +
+    comparisonList(remaining, comparisonIssueItem, 'No findings remain unchanged on comparable URLs.') + '</div>' +
+    '<div class="comparison-group"><h4>🆕 New issues</h4>' +
+    comparisonList(introduced, comparisonIssueItem, 'No new findings on comparable URLs.') + '</div>' +
+    '<div class="comparison-group"><h4>Coverage</h4><p>' +
+    previous.pages.length + ' pages before → ' + current.pages.length + ' pages now. ' +
+    shared.size + ' URL(s) were checked in both audits.</p></div>';
+  auditComparison.hidden = false;
+}
+
 function renderEnvironmentStatus(result) {
   const mode = auditEnvironment(result);
   const diagnostics = result.site?.environment || { mode };
@@ -1406,7 +1451,9 @@ downloadCsv.addEventListener('click', () => {
 
 
 async function openSavedAuditFromUrl() {
-  const id = new URLSearchParams(window.location.search).get('audit');
+  const params = new URLSearchParams(window.location.search);
+  const id = params.get('audit');
+  const previousId = params.get('previous');
   if (!id || !/^[a-f0-9-]{36}$/i.test(id)) return;
   setStatus('Opening saved audit ' + id + '…');
   try {
@@ -1414,7 +1461,15 @@ async function openSavedAuditFromUrl() {
     if (!response.ok) throw new Error('Saved audit could not be loaded (HTTP ' + response.status + '). It may have expired.');
     const result = await response.json();
     render(result);
-    setStatus('Loaded saved audit · ' + (result.summary?.pages ?? result.pages?.length ?? 0) + ' pages.');
+    if (previousId && /^[a-f0-9-]{36}$/i.test(previousId) && previousId !== id) {
+      const oldResponse = await fetch('/api/audits/' + encodeURIComponent(previousId) + '/result');
+      if (!oldResponse.ok) throw new Error('Current report loaded, but previous report is unavailable or expired.');
+      renderProgressComparison(await oldResponse.json(), result);
+      auditComparison.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      setStatus('Progress report ready: latest audit vs immediately previous audit.');
+    } else {
+      setStatus('Loaded saved audit · ' + (result.summary?.pages ?? result.pages?.length ?? 0) + ' pages.');
+    }
   } catch (error) {
     setStatus(error.message || 'Could not open saved audit.', true);
   }
