@@ -22,6 +22,7 @@
 <body>
   <main class="history-wrap">
     <div class="history-top"><div><p class="eyebrow">Private admin area</p><h1>Recent audits</h1><p class="muted">All websites · Quick and background audits · Reports expire after 7 days</p></div><a class="secondary" href="/">← Back to auditor</a></div>
+    @if(session('notice'))<p class="environment-note">{{ session('notice') }}</p>@endif
     <form method="get" class="history-search"><label for="domain">Filter domain</label><input id="domain" name="domain" value="{{ $search }}" placeholder="e.g. brasilll.com"><button type="submit">Filter</button></form>
     <div style="overflow-x:auto">
       <table class="history-table">
@@ -37,6 +38,9 @@
               <td>
                 @if($run->status === 'completed')
                   <a href="{{ route('audit.history.open', ['id' => $run->id]) }}">View audit</a>
+                  @if(isset($progressPairs[$run->id]))
+                    <span style="margin:0 .25rem">·</span><a href="{{ route('audit.history.progress', ['id' => $run->id]) }}"><strong>Progress since last audit →</strong></a>
+                  @endif
                 @elseif($run->status === 'failed')
                   <small>{{ $run->error }}</small>
                 @else
@@ -54,7 +58,7 @@
       <span>Showing {{ $runs->firstItem() ?? 0 }}–{{ $runs->lastItem() ?? 0 }} of {{ $runs->total() }}</span>
       <span>@if($runs->previousPageUrl())<a href="{{ $runs->previousPageUrl() }}">← Previous</a>@endif @if($runs->nextPageUrl())<a href="{{ $runs->nextPageUrl() }}">Next →</a>@endif</span>
     </div>
-    <p class="muted">This private listing includes completed quick and background audits. Scheduled cleanup permanently deletes expired reports.</p>
+    <p class="muted">Only the newest completed audit for each site and environment can be compared with its immediate predecessor. Reports expire after seven days.</p>
   </main>
 </body>
 </html>
