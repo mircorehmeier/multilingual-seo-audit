@@ -32,6 +32,36 @@ class SiteAuditor
     ) {
     }
 
+    /**
+     * Spread language folders throughout the sitemap crawl quota instead of
+     * exhausting one locale before reaching the others. Non-locale paths are
+     * their own group, and the original order within each group is retained.
+     */
+    private function interleaveSitemapLanguages(array $urls): array
+    {
+        $groups = [];
+        foreach ($urls as $url) {
+            $path = (string) (parse_url($url, PHP_URL_PATH) ?: '/');
+            $firstSegment = explode('/', trim($path, '/'))[0] ?? '';
+            $key = preg_match('/^[a-z]{2}(?:-[a-z]{2})?$/i', $firstSegment)
+                ? strtolower($firstSegment)
+                : '_default';
+            $groups[$key][] = $url;
+        }
+
+        $ordered = [];
+        while ($groups !== []) {
+            foreach (array_keys($groups) as $key) {
+                $ordered[] = array_shift($groups[$key]);
+                if ($groups[$key] === []) {
+                    unset($groups[$key]);
+                }
+            }
+        }
+
+        return $ordered;
+    }
+
     public function audit(string $startInput, int $requestedMaxPages = 25, string $environment = 'live'): array
     {
         $startInput = trim($startInput);
@@ -115,8 +145,17 @@ class SiteAuditor
             }
 
             $queued[$key] = true;
-            array_unshift($queue, $url);
+            // Keep sitemap coverage balanced on large sites. Prioritize declared
+            // language alternatives, but do not let ordinary links starve the
+            // sitemap URLs already waiting in the queue.
+            if ($type === 'hreflang') {
+                array_unshift($queue, $url);
+            } else {
+                $queue[] = $url;
+            }
         };
+
+        $sitemapSeedUrls = $this->interleaveSitemapLanguages($sitemapSeedUrls);
 
         foreach ($sitemapSeedUrls as $seedUrl) {
             $key = $this->urlKey($seedUrl);
