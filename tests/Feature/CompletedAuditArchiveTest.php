@@ -13,6 +13,8 @@ class CompletedAuditArchiveTest extends TestCase
 {
     public function test_quick_audit_is_archived_and_can_be_loaded_from_result_endpoint(): void
     {
+        config()->set('database.connections.sqlite.database', ':memory:');
+        DB::purge('sqlite');
         Storage::fake('local');
         Schema::create('audit_runs', function (Blueprint $table): void {
             $table->uuid('id')->primary();
@@ -38,7 +40,7 @@ class CompletedAuditArchiveTest extends TestCase
             'environment' => 'staging',
         ]);
         Storage::disk('local')->assertExists('seo-audits/'.$id.'.json.gz');
-        $this->get('/api/audits/'.$id.'/result')->assertOk()
-            ->assertJsonPath('summary.pages', 1);
+        $response = $this->get('/api/audits/'.$id.'/result')->assertOk();
+        $this->assertSame(1, json_decode($response->streamedContent(), true, 512, JSON_THROW_ON_ERROR)['summary']['pages']);
     }
 }
