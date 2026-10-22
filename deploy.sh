@@ -92,7 +92,11 @@ if command -v git >/dev/null 2>&1 && git rev-parse --is-inside-work-tree >/dev/n
     COMMIT_SHA="$(git rev-parse --short HEAD)"
 fi
 
-APP_VERSION="$("$PHP_BIN" -r '$config = require "config/audit.php"; echo $config["version"] ?? "unknown";')"
+# Bootstrap Laravel so config() and env() are available.
+APP_VERSION="$("$PHP_BIN" artisan tinker --execute='echo config("audit.version");' --no-interaction 2>/dev/null || true)"
+if [ -z "$APP_VERSION" ]; then
+    APP_VERSION="unknown"
+fi
 printf 'ok - laravel %s\ncommit: %s\n' "$APP_VERSION" "$COMMIT_SHA" > public/deploy-status.txt
 
 echo "==> Laravel deploy complete"
