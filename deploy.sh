@@ -53,6 +53,11 @@ fi
 
 mkdir -p storage/framework/cache/data storage/framework/sessions storage/framework/views storage/logs bootstrap/cache database
 touch database/database.sqlite
+chmod ug+rw database/database.sqlite database || true
+"$PHP_BIN" -r 'exit(extension_loaded("pdo_sqlite") ? 0 : 1);' || {
+    echo "ERROR: Enable the PHP pdo_sqlite extension in Plesk to use queued audits."
+    exit 1
+}
 # Migrate default sync queue to a real database queue without overwriting other .env settings.
 if grep -q '^QUEUE_CONNECTION=sync
 chmod -R ug+rw storage bootstrap/cache || true
@@ -86,6 +91,9 @@ printf 'ok - laravel %s\ncommit: %s\n' "$APP_VERSION" "$COMMIT_SHA" > public/dep
 echo "==> Laravel deploy complete"
  .env; then
     sed -i 's/^QUEUE_CONNECTION=sync$/QUEUE_CONNECTION=database/' .env
+fi
+if ! grep -q '^DB_QUEUE_RETRY_AFTER=' .env; then
+    printf '\nDB_QUEUE_RETRY_AFTER=2100\n' >> .env
 fi
 if ! grep -q '^DB_CONNECTION=' .env; then
     printf '\nDB_CONNECTION=sqlite\n' >> .env
