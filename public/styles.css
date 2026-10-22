@@ -219,3 +219,10 @@ footer p { margin: 0; }
 }
 
 .pill.expected { color: #6b4f00; background: #fff7d6; border-color: #ead98c; }
+
+/* v1.2.1 — restore the 16-metric dashboard as the first result overview. */
+.results-heading + .summary-grid { margin-top: 18px; }
+#summary.summary-grid { margin-top: 20px; margin-bottom: 12px; }
+#summary .summary-card { min-height: 104px; }
+#summary + .summary-hint { margin-bottom: 16px; }
+#hreflang-intelligence, #crawl-coverage { margin-top: 18px; }
