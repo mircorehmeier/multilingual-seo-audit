@@ -873,7 +873,13 @@ form.addEventListener('submit', async (event) => {
   originNormalization.hidden = true;
   environmentStatus.hidden = true;
   auditComparison.hidden = true;
-  setStatus(`Auditing ${environmentInput.value === 'staging' ? 'staging' : 'live'} site · up to ${maxPagesInput.value} pages…`);
+  const startedAt = Date.now();
+  const describeProgress = () => {
+    const seconds = Math.floor((Date.now() - startedAt) / 1000);
+    setStatus(`Auditing ${environmentInput.value === 'staging' ? 'staging' : 'live'} site · up to ${maxPagesInput.value} pages · ${seconds}s elapsed. The server is processing the audit; this is not a page-by-page progress indicator.`);
+  };
+  describeProgress();
+  const progressTimer = setInterval(describeProgress, 1000);
 
   try {
     const response = await fetch('/api/audit', {
@@ -905,6 +911,7 @@ form.addEventListener('submit', async (event) => {
   } catch (error) {
     setStatus(error.message || 'Audit failed.', true);
   } finally {
+    clearInterval(progressTimer);
     runButton.disabled = false;
   }
 });
