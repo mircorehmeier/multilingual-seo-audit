@@ -773,6 +773,44 @@ function renderEnvironmentStatus(result) {
   environmentStatus.hidden = false;
 }
 
+function renderCrawlCoverage(result) {
+  const panel = document.querySelector('#crawl-coverage');
+  const metrics = document.querySelector('#crawl-coverage-metrics');
+  const note = document.querySelector('#crawl-coverage-note');
+  if (!panel || !metrics || !note) return;
+
+  const pages = result.pages || [];
+  const coverage = result.site?.crawlCoverage || {};
+  const sitemapTotal = Number(coverage.sitemapUrls ?? result.site?.sitemapUrlsDiscovered ?? 0);
+  const sitemapAudited = Number(coverage.audited ?? pages.filter(p => p.inSitemap).length);
+  const unvisitedSitemap = Math.max(0, sitemapTotal - sitemapAudited);
+  const outsideSitemap = pages.filter(p => p.inSitemap === false).length;
+  const failed = pages.filter(p => p.error || p.fetchError || (p.status ?? 200) === 0).length;
+  const foundFromLinks = pages.filter(p => (p.discovery || []).some(d =>
+    /internal-link/i.test(typeof d === 'string' ? d : String(d.type || d.source || '')))).length;
+  const coveragePercent = sitemapTotal ? Math.round(1000 * sitemapAudited / sitemapTotal) / 10 : null;
+
+  const values = [
+    ['Audited pages', pages.length],
+    ['Sitemap pages checked', sitemapAudited],
+    ['Sitemap URLs not checked', unvisitedSitemap],
+    ['Audited outside sitemap', outsideSitemap],
+    ['Pages with fetch failures', failed],
+    ['Discovered through links', foundFromLinks],
+  ];
+  metrics.innerHTML = values.map(([label, value]) =>
+    '<div class="environment-stat"><span>' + escapeHtml(label) + '</span><strong>' + value + '</strong></div>'
+  ).join('');
+
+  const pct = coveragePercent === null ? 'No sitemap coverage denominator was available.'
+    : coveragePercent + '% of ' + sitemapTotal + ' sitemap URLs were audited.';
+  note.textContent = pct + ' The crawl can also discover URLs outside sitemaps, so total audited pages may be higher than the sitemap URL count. ' +
+    (coverage.complete ? 'The reported sitemap coverage is complete.' :
+      'Unvisited URLs have NOT been classified as broken, excluded, or orphaned; they remain unchecked.') +
+    ' Link-discovery counts may overlap with sitemap URLs.';
+  panel.hidden = false;
+}
+
 function renderSiteDiagnostics(result) {
   const site = result.site || {};
   const issues = result.siteIssues || [];
@@ -820,6 +858,7 @@ function render(result) {
   renderPatternInsights(result);
   renderOriginNormalization(result);
   renderSiteDiagnostics(result);
+  renderCrawlCoverage(result);
   renderRows();
   results.hidden = false;
   results.scrollIntoView({ behavior: 'smooth', block: 'start' });
