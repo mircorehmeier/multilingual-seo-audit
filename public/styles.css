@@ -226,3 +226,12 @@ footer p { margin: 0; }
 #summary .summary-card { min-height: 104px; }
 #summary + .summary-hint { margin-bottom: 16px; }
 #hreflang-intelligence, #crawl-coverage { margin-top: 18px; }
+
+/* v1.3 opportunity insights: compact groups under the familiar 16-card overview. */
+#site-opportunities .opportunity-columns { margin: 14px 0 0; align-items: start; }
+#site-opportunities .opportunity-columns > div { min-width: 0; }
+#site-opportunities .opportunity-columns h4 { margin: 4px 0 14px; }
+.opportunity-group { border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin: 10px 0; background: #fff; }
+.opportunity-group summary { cursor: pointer; display: flex; align-items: center; flex-wrap: wrap; gap: 9px; }
+.opportunity-group summary strong { flex: 1; min-width: 130px; }
+.opportunity-group .pattern-urls { max-height: 300px; overflow: auto; overflow-wrap: anywhere; }
